@@ -13,10 +13,10 @@ class DocsRouter:
     """Sends a question to specific repos' docs when it names a keyword.
 
     Rules come from DOCS_ROUTES, written as
-        "xbox 360,x360,360=rexglue/rexglue-sdk; xbox=sp00nznet/xboxrecomp"
+        "switch 2,switch2=owner/switch2-tool; switch=owner/switch-tool"
     Rules are checked in order and each match is removed from the question
-    before the next rule runs, so "Xbox 360" goes to the first repo above and
-    does not also count as plain "Xbox". Keywords match whole words, ignoring case.
+    before the next rule runs, so "Switch 2" goes to the first repo above and
+    does not also count as plain "Switch". Keywords match whole words, ignoring case.
     """
 
     def __init__(self, routes: list[Route]):
@@ -33,7 +33,7 @@ class DocsRouter:
             repo = repo.strip()
             if not sep or not keywords or repo.count("/") != 1:
                 raise ValueError(f"Bad DOCS_ROUTES rule {rule.strip()!r}, expected words=owner/repo")
-            # Longest first, so "xbox 360" wins over "360" inside the same rule.
+            # Longest first, so "switch 2" wins over "switch" inside the same rule.
             alternatives = "|".join(
                 r"\s+".join(map(re.escape, k.split())) for k in sorted(keywords, key=len, reverse=True)
             )

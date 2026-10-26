@@ -77,23 +77,25 @@ def test_warnings_escalate_to_review_at_the_limit(settings):
     assert third.review_timeout and third.warning_number == 3
 
 
-def test_severe_scams_go_straight_to_review(settings):
+def test_severe_scams_follow_the_ladder_unless_review_is_on(settings):
     severe = Verdict("scam", 0.95, ("fake giveaway",), "ai")
     assert is_severe(severe, settings)
-    assert plan("scam", True, 0, settings).review_timeout
+    # By default every scam is a warning; the third one times the member out.
+    assert not plan("scam", True, 0, settings).review_timeout
+    on = dataclasses.replace(settings, mod_severe_scam_review=True)
+    assert plan("scam", True, 0, on).review_timeout
     assert not is_severe(Verdict("scam", 0.8, (), "ai"), settings)
     assert is_severe(Verdict("scam", 0.6, (), "rules", score=100), settings)
     assert not is_severe(Verdict("piracy", 0.99, (), "ai"), settings)
-    off = dataclasses.replace(settings, mod_severe_scam_review=False)
-    assert not plan("scam", True, 0, off).review_timeout
 
 
-def test_delete_follows_the_action_setting_per_label(settings):
-    assert not plan("scam", False, 0, settings).delete_message
-    deleting = dataclasses.replace(settings, mod_action="delete")
-    assert plan("scam", False, 0, deleting).delete_message
-    assert not plan("piracy", False, 0, deleting).delete_message
-    assert not plan("manual", False, 0, deleting).delete_message
+def test_warnings_delete_the_message_by_default(settings):
+    for label in ("scam", "piracy", "hate_speech", "rule_violation"):
+        assert plan(label, False, 0, settings).delete_message, label
+    assert not plan("manual", False, 0, settings).delete_message  # no message to delete
+    flagging = dataclasses.replace(settings, mod_action="flag")
+    assert not plan("scam", False, 0, flagging).delete_message
+    assert plan("piracy", False, 0, flagging).delete_message
 
 
 def test_review_timeout_fits_discords_28_day_limit():
@@ -169,6 +171,10 @@ class FakeDiscord:
 SUSPECTED_PIRACY = Verdict("piracy", 0.8, ("iso link",), "ai")
 
 
+def dm_text(embed: discord.Embed) -> str:
+    return " ".join([embed.title or ""] + [f"{f.name} {f.value}" for f in embed.fields])
+
+
 def flag(fake, verdict=SUSPECTED_PIRACY):
     return run(fake.manager.open_from_message(fake.message(), Post("free nitro", 2, 3), verdict))
 
@@ -176,12 +182,14 @@ def flag(fake, verdict=SUSPECTED_PIRACY):
 def test_first_violation_warns_dms_and_reports(settings, store):
     fake = FakeDiscord(settings, store)
     case = flag(fake)
-    assert case.status == "warned" and not case.timed_out
+    assert case.status == "warned" and not case.timed_out and case.message_deleted
     fake.member.timeout.assert_not_awaited()
-    assert "warning 1 of 3" in fake.member.send.await_args.args[0]
+    dm = fake.member.send.await_args.kwargs["embed"]
+    assert "1 of 3" in dm_text(dm) and "warning" in dm.title
     sent = fake.log_channel.send.await_args.kwargs
+    # The message is already gone, so there's no Delete button.
     assert [b.custom_id for b in sent["view"].children] == [
-        f"case:{case.id}:ban", f"case:{case.id}:timeout", f"case:{case.id}:dismiss", f"case:{case.id}:delete",
+        f"case:{case.id}:ban", f"case:{case.id}:timeout", f"case:{case.id}:dismiss",
     ]
     assert store.get(case.id).log_message_id == 500
 
@@ -193,18 +201,18 @@ def test_third_warning_times_out_until_review(settings, store):
     case = flag(fake)
     assert case.status == "review" and case.timed_out
     assert fake.member.timeout.await_args.args[0] == REVIEW_TIMEOUT
-    assert "timed out until a moderator reviews" in fake.member.send.await_args.args[0]
+    assert "timed out" in dm_text(fake.member.send.await_args.kwargs["embed"])
     fake.guild.ban.assert_not_awaited()  # the bot never bans by itself
 
 
-def test_severe_scam_times_out_on_first_offence(settings, store):
-    fake = FakeDiscord(settings, store)
+def test_severe_scam_times_out_on_first_offence_when_enabled(settings, store):
+    fake = FakeDiscord(dataclasses.replace(settings, mod_severe_scam_review=True), store)
     case = flag(fake, Verdict("scam", 0.97, ("fake MrBeast casino",), "ai"))
     assert case.status == "review" and case.timed_out
 
 
 def test_ban_needs_permission_and_confirmation(settings, store):
-    fake = FakeDiscord(settings, store)
+    fake = FakeDiscord(dataclasses.replace(settings, mod_severe_scam_review=True), store)
     case = flag(fake, Verdict("scam", 0.97, ("x",), "ai"))
 
     denied = fake.click(case.id, "ban", moderate_members=True)
@@ -222,7 +230,7 @@ def test_ban_needs_permission_and_confirmation(settings, store):
 
 
 def test_dismiss_removes_warning_and_lifts_timeout(settings, store):
-    fake = FakeDiscord(settings, store)
+    fake = FakeDiscord(dataclasses.replace(settings, mod_severe_scam_review=True), store)
     case = flag(fake, Verdict("scam", 0.97, ("x",), "ai"))
     assert fake.manager.warning_count(1, 2) == 1
 
@@ -237,7 +245,7 @@ def test_dismiss_removes_warning_and_lifts_timeout(settings, store):
 
 
 def test_lift_keeps_the_warning(settings, store):
-    fake = FakeDiscord(settings, store)
+    fake = FakeDiscord(dataclasses.replace(settings, mod_severe_scam_review=True), store)
     case = flag(fake, Verdict("scam", 0.97, ("x",), "ai"))
     fake.click(case.id, "lift", moderate_members=True)
     assert fake.manager.warning_count(1, 2) == 1
@@ -266,7 +274,21 @@ def test_embed_shows_status_and_review_note(settings, store):
     case.status = "review"
     embed = build_embed(case, 1, settings)
     names = [f.name for f in embed.fields]
-    assert "Needs a decision" in names and embed.title.startswith(f"Case #{case.id} · Scam")
+    assert "🧑\u200d⚖️ Your decision" in names and embed.title == f"🎣 Case #{case.id} · Scam"
+    assert "Waiting for a moderator" in embed.description and "> " not in embed.description
+    assert "🟧⬜⬜" in embed.fields[names.index("⚠️ Warnings")].value
+
+
+def test_embed_quotes_the_message_without_pinging(settings, store):
+    case = store.create_case(1, 2, "scam", ["fake giveaway"], content="hi @everyone\nfree nitro", channel_id=3)
+    case.message_deleted = True
+    embed = build_embed(case, 1, settings)
+    assert "> hi @\u200beveryone\n> free nitro" in embed.description
+    assert "Warning given" in embed.description
+    assert "message removed" in embed.fields[1].value
+    case.status, case.decision, case.decided_by, case.decided_at = "closed", "banned by mod", 9, time.time()
+    closed = build_embed(case, 1, settings)
+    assert "Closed:" in closed.description and any(f.name == "🕒 Decided" for f in closed.fields)
 
 
 # --- #rules ----------------------------------------------------------------------
@@ -343,7 +365,7 @@ def test_hate_speech_from_ai_times_out_first_time(settings, store):
     fake = FakeDiscord(settings, store)
     case = flag(fake, Verdict("hate_speech", 0.85, ("slur aimed at a member",), "ai"))
     assert case.status == "review" and case.timed_out
-    assert build_embed(case, 1, settings).title.startswith(f"Case #{case.id} · Hate speech")
+    assert build_embed(case, 1, settings).title == f"🛑 Case #{case.id} · Hate speech"
 
 
 def test_burst_of_violations_makes_one_report(settings, store):
@@ -398,11 +420,13 @@ def test_certain_piracy_is_deleted_but_follows_the_ladder(settings, store):
     certain = Verdict("piracy", 1.0, ("shared a game file: halo.iso (disc image)",), "rules", score=100)
     assert is_severe(certain, settings)
     first = plan("piracy", True, 0, settings)
-    assert first.delete_message and not first.review_timeout  # MOD_PIRACY_ACTION is still "flag"
+    flagging = dataclasses.replace(settings, mod_piracy_action="flag")
+    assert plan("piracy", True, 0, flagging).delete_message  # always, even when set to "flag"
+    assert first.delete_message and not first.review_timeout
     assert plan("piracy", True, 2, settings).review_timeout   # third warning
     guess = Verdict("piracy", 0.8, ("asks for an iso",), "ai", score=20)
     assert not is_severe(guess, settings)
-    assert not plan("piracy", False, 0, settings).delete_message
+    assert not plan("piracy", False, 0, flagging).delete_message
 
     fake = FakeDiscord(settings, store)
     message = fake.message("here")

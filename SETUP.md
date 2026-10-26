@@ -10,7 +10,7 @@ This takes about 20 minutes and no programming. You need:
 
 ## 1. Create the bot in Discord
 
-1. Go to <https://discord.com/developers/applications> and click **New Application**. Name it (for example "Recomp Helper") and accept the terms.
+1. Go to <https://discord.com/developers/applications> and click **New Application**. Name it (for example "Community Helper") and accept the terms.
 2. On **General Information**, copy the **Application ID**. You need it in step 2.
 3. Open the **Bot** page:
    - Click **Reset Token**, then **Copy**. This is your `DISCORD_TOKEN`. Keep it secret: anyone with it controls your bot. If it ever leaks, reset it again.
@@ -29,7 +29,7 @@ Pick your server and click **Authorize**. This grants exactly the permissions th
 | Permission | Why |
 | --- | --- |
 | View Channels, Read Message History, Send Messages (and in threads), Embed Links, Attach Files | Read chat, answer `/ask`, post case reports with evidence |
-| Manage Messages | Delete scam messages (only if you turn that on) |
+| Manage Messages | Delete scam, piracy and rule-breaking messages when it warns someone |
 | Moderate Members | Time members out while a moderator reviews their case |
 | Ban Members | Ban, but **only** when a moderator presses Ban on a case |
 | Manage Server | See Discord's AutoMod slur filter, used for hate speech |
@@ -55,7 +55,9 @@ Free models have daily limits. A few dollars of credit raises them a lot. You ca
 
 ## 5. Download the bot
 
-On the [GitHub page](https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot), click **Code → Download ZIP** and unzip it somewhere permanent. If you have Git installed, you can run `git clone https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot` instead.
+On the bot's GitHub page, click **Code → Download ZIP** and unzip it somewhere permanent. If you have Git installed, you can run `git clone <the page's URL>` instead.
+
+If you're making a bot for a new community from this template, delete the `servers/` folder; it holds another community's settings.
 
 ## 6. Fill in the settings
 
@@ -72,7 +74,12 @@ MOD_AI_MODEL=           # your image-capable model for moderation
 
 MOD_LOG_CHANNEL_ID=     # your #mod-log channel ID
 RULES_CHANNEL_ID=       # optional: your rules channel ID
+
+COMMUNITY_ABOUT=        # what the server is about, e.g. "retro handheld modding"
+DOCS_REPOS=             # optional: GitHub repos /ask answers from, e.g. owner/repo,owner/repo.wiki
 ```
+
+If your community already has a profile in the `servers/` folder, set `SERVER_PROFILE=servers/<name>/server.env` instead of `COMMUNITY_ABOUT` and `DOCS_REPOS`.
 
 Everything else already has sensible defaults, explained in the comments in `.env`. Never share `.env` or upload it anywhere.
 
@@ -80,7 +87,7 @@ Everything else already has sensible defaults, explained in the comments in `.en
 
 **Windows**
 1. Install Python from <https://www.python.org/downloads/>. On the first installer screen, tick **"Add python.exe to PATH"**.
-2. Install Git from <https://git-scm.com/download/win>. The bot uses it to read the ReXGlue wiki.
+2. Install Git from <https://git-scm.com/download/win>. The bot uses it to read GitHub wikis listed in `DOCS_REPOS`.
 3. Double-click **`start.bat`**. The first run takes a minute to set things up.
 
 **Mac / Linux**
@@ -100,8 +107,8 @@ When you see `Logged in as ...`, the bot is online.
 In your server, type **`/status`**. It checks the AI, the case report channel, the rules, the docs, the AutoMod slur filter, the bot's permissions and its role position. Fix anything marked ⚠️.
 
 Then try it:
-- `/ask question: how do I install the ReXGlue SDK?`
-- From a **non-moderator** account (moderators are never moderated), post `free nitro at dlscord-gift.com`. A case report should appear in `#mod-log` with buttons.
+- `/ask question: how do I get started?`
+- From a **non-moderator** account (moderators are never moderated), post `free nitro at dlscord-gift.com`. The message should disappear, the account should get a warning DM, and a case report with buttons should appear in `#mod-log`.
 
 ## 9. Keep it running
 
@@ -111,16 +118,13 @@ Cases and warnings are stored in the `data/` folder. Keep that folder when you m
 
 **Updating:** download the new version (or run `git pull`), keep your `.env` and `data/`, and start it again.
 
-## 10. After the first week
+## 10. How it treats members
 
-The bot starts out cautious. It warns members and reports cases, but leaves flagged messages up for a moderator to delete. Once the reports look right, open `.env` and set:
+1. **1st and 2nd warning:** the message is deleted (a copy stays in the case report) and the member gets a DM.
+2. **3rd warning:** the member is timed out, and the case waits for a moderator to decide with the buttons.
+3. **Hate speech** skips straight to step 2.
 
-```
-MOD_ACTION=delete          # remove scam messages immediately
-MOD_HATE_ACTION=delete     # remove hate speech immediately
-```
-
-Bans always stay a moderator's decision. Shared game files and piracy links are deleted from day one: that's certain, so it doesn't wait for this step.
+Bans are always a moderator's decision. If you'd rather review messages before they're deleted, set `MOD_ACTION=flag` in `.env`. Shared game files and piracy links are deleted either way.
 
 ---
 
@@ -136,4 +140,4 @@ Bans always stay a moderator's decision. Shared game files and piracy links are 
 | Screenshot scams aren't caught | `MOD_AI_MODEL` must be a model that accepts images. `/status` tells you |
 | "The AI provider failed" | Check the key and model name. Free models can hit their daily limit |
 | Hate speech from AutoMod isn't opening cases | Turn on the **Slurs** filter (step 3.4). The bot needs **Manage Server** |
-| ReXGlue wiki not loading | Install Git (step 7) |
+| A GitHub wiki isn't loading | Install Git (step 7) |

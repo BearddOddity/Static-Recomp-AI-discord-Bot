@@ -1,12 +1,24 @@
-# Static Recomp AI Discord Bot
+# AI Discord Bot
 
-A Discord assistant for the static recompiled games community. It answers questions from the projects' GitHub docs and moderates scam and piracy posts, including scams made only of screenshots.
+An open source Discord assistant and moderator for game communities. It answers questions from your community's GitHub docs and moderates scams, piracy and hate speech, including scams made only of screenshots. It works with Claude, free OpenRouter models, or a model on your own machine.
 
 **New here? Follow [SETUP.md](SETUP.md)**: a step-by-step guide from creating the bot to running it, no programming needed.
 
 > AI coding assistants: read [AGENTS.md](AGENTS.md) before changing anything.
 
-It connects to Discord, answers `/ask` questions using your community's GitHub docs, and lets you choose the AI backend.
+## Use it as a template
+
+The code in `bot/` holds nothing specific to any one server. Everything about a particular community (its topic, docs repos and keywords) lives in a **server profile**, so you can start your own bot from this one:
+
+1. Copy the repository: on GitHub, use **Use this template** (if the owner has turned on *Template repository* in Settings) or **Fork**, or download the ZIP.
+2. Delete the `servers/static-recomp/` folder. It's the profile for the community this bot was first built for, and isn't needed by the template.
+3. Set `COMMUNITY_ABOUT`, `DOCS_REPOS` and `DOCS_ROUTES` in `.env`, or make your own `servers/<name>/server.env` and point `SERVER_PROFILE` at it.
+
+It's MIT licensed (see [LICENSE](LICENSE)): use it, change it and build on it, for any purpose. Keep the license notice.
+
+### Built-in profile: Static Recomp
+
+This repository also runs the Static Recomp community's bot. Its settings are in [`servers/static-recomp/`](servers/static-recomp/), and its owner turns them on with `SERVER_PROFILE=servers/static-recomp/server.env`.
 
 ## Quickstart with OpenRouter (free, nothing to host)
 
@@ -27,20 +39,20 @@ Free OpenRouter models have per-minute and daily request limits. Adding a small 
 List the repos to learn from in `DOCS_REPOS`, comma separated, as `owner/repo[@branch][:folder]`. Add `.wiki` to a repo name to read its GitHub wiki instead:
 
 ```
-DOCS_REPOS=sp00nznet/xboxrecomp,sp00nznet/ps3recomp,rexglue/rexglue-sdk,rexglue/rexglue-sdk.wiki
+DOCS_REPOS=owner/switch-tools,owner/switch-tools.wiki,owner/ps3-tools@main:docs
 ```
 
 Wikis are read with `git clone`, so `git` must be installed on the machine running the bot. A wiki's pages count as part of its repo for keyword routing.
 
 ### Keyword routing
 
-When a question names a platform, `DOCS_ROUTES` makes the bot answer only from that project's docs, so a PS3 question never gets Xbox instructions:
+When a question names a platform, `DOCS_ROUTES` makes the bot answer only from that project's docs, so a PS3 question never gets Switch instructions:
 
 ```
-DOCS_ROUTES=xbox 360,xbox360,x360,360=rexglue/rexglue-sdk; xbox=sp00nznet/xboxrecomp; ps3=sp00nznet/ps3recomp
+DOCS_ROUTES=switch 2,switch2=owner/switch2-tools; switch=owner/switch-tools; ps3=owner/ps3-tools
 ```
 
-Each rule is `keywords=owner/repo`, and rules are separated by `;`. Keywords match whole words and ignore case. Rules are checked in order, and a matched keyword is removed before later rules run. That is why "Xbox 360" goes to rexglue and is not also counted as plain "Xbox". A question naming two platforms searches both. A question with no keyword searches every repo. Each route's repo must also be listed in `DOCS_REPOS`.
+Each rule is `keywords=owner/repo`, and rules are separated by `;`. Keywords match whole words and ignore case. Rules are checked in order, and a matched keyword is removed before later rules run. That is why "Switch 2" goes to the first repo and is not also counted as plain "Switch". A question naming two platforms searches both. A question with no keyword searches every repo. Each route's repo must also be listed in `DOCS_REPOS`.
 
 At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, reStructuredText and text files from those repos and splits them into sections by heading. For each `/ask`, it finds the most relevant sections, gives them to the AI with the question, and links the source files under the answer. Server managers can run `/reload-docs` after updating the docs.
 
@@ -62,7 +74,7 @@ The bot checks every message from members (anyone with **Manage Messages** is sk
 - **links to piracy sites** (list in `bot/moderation/data/piracy_domains.txt`, plus `MOD_PIRACY_DOMAINS`)
 - **direct links to game files** on file hosts or the Discord CDN (`…/Halo3.iso`); trusted sites such as GitHub releases are skipped
 
-Those messages are **always deleted**, and the member gets a warning on the normal ladder. Piracy is often a newcomer who didn't know, so it's 3 warnings before a timeout pending review, and bans stay with moderators. Things the AI only suspects, such as someone asking where to find an ISO, follow `MOD_PIRACY_ACTION` (flag by default). Talking about files is fine: "my default.xex crashes in the recompiler" or "how do I dump my own disc?" are never flagged. `/ask` refuses to help find game files and points people to dumping their own.
+Those messages are **always deleted**, and the member gets a warning on the normal ladder. Piracy is often a newcomer who didn't know, so it's 3 warnings before a timeout pending review, and bans stay with moderators. Things the AI only suspects, such as someone asking where to find an ISO, are deleted too unless `MOD_PIRACY_ACTION=flag`. Talking about files is fine: "my default.xex crashes on startup" or "how do I dump my own disc?" are never flagged. `/ask` refuses to help find game files and points people to dumping their own.
 
 Detection works in two layers:
 
@@ -77,8 +89,8 @@ Detection works in two layers:
 
 The bot warns first and never bans by itself:
 
-1. **Warning.** Each violation opens a **case** and gives the member a warning, which they get by DM (warning 1 of 3, and so on).
-2. **Timeout until reviewed.** At `MOD_WARN_LIMIT` active warnings (3 by default), the member is timed out until a moderator looks at the case. **Hate speech** and near-certain scams (a known scam site, or the AI at least 90% sure) go straight here on the first offence. Scams like that usually come from hacked accounts. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides.
+1. **Warning.** Each violation (a scam, piracy, a broken rule) **deletes the message**, opens a **case report** for moderators with a copy of the message and its images, and gives the member a warning by DM (warning 1 of 3, and so on).
+2. **Timeout until reviewed.** The **3rd warning** (`MOD_WARN_LIMIT`) times the member out and hands the case to a human. **Hate speech** goes straight here on the first offence. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides. Optionally, `MOD_SEVERE_SCAM_REVIEW=true` sends near-certain scams (usually hacked accounts) here on the first offence too.
 3. **Ban.** Only a moderator can ban, using the button on the case report, and the bot asks them to confirm first.
 
 Warnings expire after `MOD_WARN_EXPIRY_DAYS` (90 by default). Moderators can also use `/warn @member reason` (it counts toward the same limit) and `/warnings @member` to see someone's record. Admins can run `/status` to check the bot's setup.
@@ -87,7 +99,7 @@ If a member breaks several rules in a short time, for example a hacked account c
 
 ### Case reports
 
-Each case is posted to `MOD_LOG_CHANNEL_ID` with the message, the reasons, the links and the images as evidence. It has buttons:
+Each case is posted to `MOD_LOG_CHANNEL_ID` as a colour-coded card: a status line saying whether anyone needs to act, the member's name and avatar, the message quoted, a warning meter (🟧🟧⬜ 2 of 3), why it was flagged, how sure the AI was, the links (not clickable), a numbered timeline of what happened, and the images as spoilered evidence. When a moderator decides, the card turns grey and shows who decided and when. [See what they look like](docs/case-reports.png) (rendered from the bot's own code). It has buttons:
 
 | Button | What it does | Who can use it |
 | --- | --- | --- |
@@ -99,7 +111,7 @@ Each case is posted to `MOD_LOG_CHANNEL_ID` with the message, the reasons, the l
 
 The report updates to show who decided what. Buttons keep working after the bot restarts, because cases are stored in SQLite at `MOD_DB_PATH`.
 
-By default the flagged message stays up (`MOD_ACTION=flag`) and moderators delete it from the report. Once you trust the results, set `MOD_ACTION=delete` so scams disappear immediately.
+Flagged messages are deleted right away and kept in the report. To leave them up for a moderator to judge instead, set `MOD_ACTION=flag` (and `MOD_PIRACY_ACTION`, `MOD_RULE_ACTION`, `MOD_HATE_ACTION`); the report then has a **Delete message** button.
 
 ### Following your rules channel
 
@@ -178,7 +190,7 @@ The tests use mocked HTTP and Discord objects, so they need no API keys or netwo
 ```
 bot/
   main.py            Discord client, /ask, /reload-docs, /warn, /warnings, /status, events
-  config.py          Reads settings from the environment
+  config.py          Reads settings from the environment, .env and SERVER_PROFILE
   docs/
     github.py        Downloads doc files from GitHub repos and wikis
     routing.py       Keyword routing (DOCS_ROUTES)
@@ -192,6 +204,7 @@ bot/
     cli.py
     __init__.py      build_provider() picks one from AI_PROVIDER
 tests/
+servers/static-recomp/  One community's profile (delete it in your own copy)
 examples/scam/       Real scam screenshots for tests and manual checks
 start.sh, start.bat  One-click start (sets up Python on first run)
 Dockerfile, docker-compose.yml

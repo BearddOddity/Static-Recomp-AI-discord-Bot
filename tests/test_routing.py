@@ -2,11 +2,8 @@ import pytest
 
 from bot.docs import DocsIndex, DocsRouter, Document
 
-ROUTES = (
-    "xbox 360,xbox360,x360,360=rexglue/rexglue-sdk; "
-    "xbox=sp00nznet/xboxrecomp; ps3=sp00nznet/ps3recomp"
-)
-REX, XBOX, PS3 = "rexglue/rexglue-sdk", "sp00nznet/xboxrecomp", "sp00nznet/ps3recomp"
+ROUTES = "switch 2,switch2,ns2=example/switch2-tools; switch=example/switch-tools; ps3=example/ps3-tools"
+SWITCH2, SWITCH, PS3 = "example/switch2-tools", "example/switch-tools", "example/ps3-tools"
 
 
 @pytest.fixture
@@ -17,18 +14,17 @@ def router():
 @pytest.mark.parametrize(
     "question, expected",
     [
-        ("How do I recompile an Xbox game?", [XBOX]),
-        ("xbox's kernel imports?", [XBOX]),
-        ("Does this work for Xbox 360 titles?", [REX]),
-        ("xbox360 shaders", [REX]),
-        ("X360 save files", [REX]),
-        ("what about 360 games", [REX]),
+        ("How do I mod a Switch game?", [SWITCH]),
+        ("switch's file system?", [SWITCH]),
+        ("Does this work for Switch 2 titles?", [SWITCH2]),
+        ("switch2 shaders", [SWITCH2]),
+        ("NS2 save files", [SWITCH2]),
         ("PS3 SPU support", [PS3]),
-        ("Is Xbox or PS3 easier?", [XBOX, PS3]),
-        ("Xbox 360 vs original Xbox", [REX, XBOX]),
+        ("Is Switch or PS3 easier?", [SWITCH, PS3]),
+        ("Switch 2 vs original Switch", [SWITCH2, SWITCH]),
         ("How do mods work?", []),
-        ("xboxone", []),
-        ("3600 frames", []),
+        ("switchboard", []),
+        ("ps30 frames", []),
     ],
 )
 def test_keyword_routing(router, question, expected):
@@ -37,16 +33,16 @@ def test_keyword_routing(router, question, expected):
 
 def test_bad_rule_is_rejected():
     with pytest.raises(ValueError):
-        DocsRouter.parse("xbox=notarepo")
-    assert DocsRouter.parse("").match("xbox") == []
+        DocsRouter.parse("switch=notarepo")
+    assert DocsRouter.parse("").match("switch") == []
 
 
 def test_search_can_be_limited_to_repos():
     index = DocsIndex(
         [
-            Document(XBOX, "README.md", "u1", "# Install\nInstall the toolchain."),
+            Document(SWITCH, "README.md", "u1", "# Install\nInstall the toolchain."),
             Document(PS3, "README.md", "u2", "# Install\nInstall the toolchain and SDK."),
         ]
     )
-    assert {c.document.repo for c in index.search("install")} == {XBOX, PS3}
-    assert [c.document.repo for c in index.search("install", repos=[XBOX])] == [XBOX]
+    assert {c.document.repo for c in index.search("install")} == {SWITCH, PS3}
+    assert [c.document.repo for c in index.search("install", repos=[SWITCH])] == [SWITCH]

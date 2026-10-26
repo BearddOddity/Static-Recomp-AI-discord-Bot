@@ -71,7 +71,7 @@ def check_attachments(names: list[str]) -> list[Signal]:
 
 def check_urls(urls: list[str], is_trusted=lambda url: False) -> list[Signal]:
     """Direct links to game files on file hosts, the Discord CDN and so on. Trusted
-    sites (GitHub releases of recomp tools, for example) are skipped."""
+    sites (GitHub releases of open source tools, for example) are skipped."""
     signals = []
     for url in urls:
         if is_trusted(url):

@@ -97,9 +97,9 @@ def test_private_repo_falls_back_to_contents_api_with_token():
 
 
 def test_wiki_spec_counts_as_its_base_repo():
-    spec = RepoSpec.parse("rexglue/rexglue-sdk.wiki")
+    spec = RepoSpec.parse("example/game-tools.wiki")
     assert spec.is_wiki
-    assert spec.base_name == "rexglue/rexglue-sdk"
+    assert spec.base_name == "example/game-tools"
     assert not RepoSpec.parse("org/repo").is_wiki
 
 

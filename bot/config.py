@@ -1,7 +1,8 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 PROVIDERS = (
     "anthropic",
@@ -20,6 +21,7 @@ class Settings:
     discord_guild_id: int | None
     ai_provider: str
     ai_timeout: float
+    community_about: str
     system_prompt: str
 
     anthropic_api_key: str
@@ -46,7 +48,7 @@ class Settings:
 
     mod_enabled: bool
     mod_log_channel_id: int | None
-    mod_action: str  # "flag" or "delete", for scams
+    mod_action: str  # "delete" or "flag", for scams
     mod_piracy_action: str  # "flag" or "delete"
     mod_rule_action: str  # "flag" or "delete", for #rules violations
     mod_hate_action: str  # "flag" or "delete", for hate speech
@@ -108,10 +110,31 @@ def _optional_int(name: str) -> int | None:
     return int(value) if value else None
 
 
+def _get(name: str, default: str) -> str:
+    """Like os.getenv, but an empty value ("KEY=" in .env) also means the default."""
+    return os.getenv(name, "").strip() or default
+
+
+def load_server_profile() -> None:
+    """Fill in settings from SERVER_PROFILE, a .env-style file holding one server's
+    details (its docs repos, topic, keywords). Values already set in the environment
+    or .env win, so .env can override any profile setting."""
+    path = os.getenv("SERVER_PROFILE", "").strip()
+    if not path:
+        return
+    if not Path(path).is_file():
+        raise RuntimeError(f"SERVER_PROFILE file not found: {path}")
+    for name, value in dotenv_values(path).items():
+        if value is not None and not os.getenv(name, "").strip():
+            os.environ[name] = value
+
+
 def load_settings(require_discord: bool = True, require_ai: bool = True) -> Settings:
-    """Read settings from the environment and .env. Command-line tools that never
-    connect to Discord, or never call the AI, can skip those checks."""
+    """Read settings from the environment, .env and the optional server profile.
+    Command-line tools that never connect to Discord, or never call the AI, can
+    skip those checks."""
     load_dotenv()
+    load_server_profile()
 
     provider = os.getenv("AI_PROVIDER", "anthropic").strip().lower()
     if provider not in PROVIDERS:
@@ -122,16 +145,15 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         raise RuntimeError(f"AI_PROVIDER={provider} needs: {', '.join(missing)}")
 
     guild = os.getenv("DISCORD_GUILD_ID", "").strip()
+    about = _get("COMMUNITY_ABOUT", "video games")
 
     return Settings(
         discord_token=_required("DISCORD_TOKEN") if require_discord else os.getenv("DISCORD_TOKEN", ""),
         discord_guild_id=int(guild) if guild else None,
         ai_provider=provider,
         ai_timeout=float(os.getenv("AI_TIMEOUT", "60")),
-        system_prompt=os.getenv(
-            "AI_SYSTEM_PROMPT",
-            "You are a helpful assistant for a Discord community about static recompiled games.",
-        ),
+        community_about=about,
+        system_prompt=_get("AI_SYSTEM_PROMPT", f"You are a helpful assistant for a Discord community about {about}."),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
         openai_compat_base_url=os.getenv("OPENAI_COMPAT_BASE_URL", ""),
@@ -141,7 +163,7 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
         ai_cli_command=os.getenv("AI_CLI_COMMAND", ""),
         ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "30")),
-        openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "Static Recomp AI Discord Bot"),
+        openrouter_app_name=_get("OPENROUTER_APP_NAME", "AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
         docs_repos=os.getenv("DOCS_REPOS", ""),
         docs_routes=os.getenv("DOCS_ROUTES", ""),
@@ -150,15 +172,15 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),
         mod_enabled=_flag("MOD_ENABLED", True),
         mod_log_channel_id=_optional_int("MOD_LOG_CHANNEL_ID"),
-        mod_action=_choice("MOD_ACTION", "flag", ("flag", "delete")),
-        mod_piracy_action=_choice("MOD_PIRACY_ACTION", "flag", ("flag", "delete")),
-        mod_rule_action=_choice("MOD_RULE_ACTION", "flag", ("flag", "delete")),
-        mod_hate_action=_choice("MOD_HATE_ACTION", "flag", ("flag", "delete")),
+        mod_action=_choice("MOD_ACTION", "delete", ("delete", "flag")),
+        mod_piracy_action=_choice("MOD_PIRACY_ACTION", "delete", ("delete", "flag")),
+        mod_rule_action=_choice("MOD_RULE_ACTION", "delete", ("delete", "flag")),
+        mod_hate_action=_choice("MOD_HATE_ACTION", "delete", ("delete", "flag")),
         mod_hate_automod_rule_ids=frozenset(int(r) for r in _set("MOD_HATE_AUTOMOD_RULE_IDS")),
         mod_warn_limit=max(1, int(os.getenv("MOD_WARN_LIMIT", "3"))),
         mod_warn_expiry_days=float(os.getenv("MOD_WARN_EXPIRY_DAYS", "90")),
         mod_severe_confidence=float(os.getenv("MOD_SEVERE_CONFIDENCE", "0.9")),
-        mod_severe_scam_review=_flag("MOD_SEVERE_SCAM_REVIEW", True),
+        mod_severe_scam_review=_flag("MOD_SEVERE_SCAM_REVIEW", False),
         mod_dm_warnings=_flag("MOD_DM_WARNINGS", True),
         mod_db_path=os.getenv("MOD_DB_PATH", "data/moderation.sqlite3"),
         rules_channel_id=_optional_int("RULES_CHANNEL_ID"),

@@ -1,8 +1,9 @@
 """The warning ladder. Pure functions, so the rules are easy to read and test.
 
-    violation -> warning (DM'd to the user, case report for moderators)
-    warning number MOD_WARN_LIMIT, a near-certain scam, or hate speech
-        -> timeout until a human reviews
+    violation -> warning: the message is deleted, the member gets a DM and
+        moderators get a case report
+    warning number MOD_WARN_LIMIT (3), or hate speech -> timeout until a human reviews
+        (near-certain scams too, if MOD_SEVERE_SCAM_REVIEW is on)
     ban -> only ever by a moderator pressing Ban on the case report
 
 Opinions, rudeness and profanity are free speech and never reach this ladder.
@@ -60,7 +61,7 @@ def plan(label: str, severe: bool, active_warnings: int, settings: Settings) -> 
     if label == "piracy" and severe:
         delete = True
     number = active_warnings + 1
-    # Hate speech always waits for a human; severe scams do unless turned off.
+    # Hate speech always waits for a human; severe scams do if that's turned on.
     # Piracy follows the normal warning ladder: it's often a newcomer who didn't know.
     review = (
         label == "hate_speech"

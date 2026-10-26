@@ -39,7 +39,7 @@ async def run(args: argparse.Namespace) -> int:
     provider = None if args.rules_only else build_provider(settings, model=settings.mod_ai_model)
     moderator = Moderator(
         LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains, settings.mod_piracy_domains),
-        Classifier(provider) if provider else None,
+        Classifier(provider, community=settings.community_about) if provider else None,
         ai_scan="off" if args.rules_only else "all",
         min_confidence=settings.mod_min_confidence,
     )

@@ -74,16 +74,16 @@ def test_suspicious_links(url, expected):
 
 @pytest.mark.parametrize(
     "url",
-    ["https://github.com/rexglue/rexglue-sdk", "https://livestream.com/x", "https://myteam.net", "https://discord.com/channels/1/2"],
+    ["https://github.com/example/game-tools", "https://livestream.com/x", "https://myteam.net", "https://discord.com/channels/1/2"],
 )
 def test_normal_links_add_no_risk(url):
     assert LinkChecker().check([url]) == []
 
 
 def test_extra_blocked_and_allowed_domains():
-    checker = LinkChecker(extra_blocked={"evil.example"}, extra_allowed={"rexglue-fans.xyz"})
+    checker = LinkChecker(extra_blocked={"evil.example"}, extra_allowed={"modding-fans.xyz"})
     assert checker.check(["https://evil.example"])[0].weight == 100
-    assert checker.check(["https://rexglue-fans.xyz"]) == []
+    assert checker.check(["https://modding-fans.xyz"]) == []
 
 
 # --- text --------------------------------------------------------------------
@@ -103,7 +103,7 @@ def test_fake_celebrity_casino_text_is_recognised():
     "text",
     [
         "The recompiler frees memory after each function, see the wiki",
-        "How do I dump my own Xbox 360 disc for rexglue?",
+        "How do I dump my own Xbox 360 disc for the recompiler?",
         "Is this kegwin thing a scam? my friend got a DM",
     ],
 )
@@ -269,14 +269,14 @@ def test_piracy_links():
     assert checker.check(["https://warez.example/x"])[0].reason == "link to a piracy site (warez.example)"
     hosted = check_urls(["https://mega.example/file/abc/Gears%20of%20War.iso"])
     assert hosted[0].reason == "link to a game file: Gears of War.iso (disc image)"
-    # GitHub releases of recomp tools are trusted, even for .elf or .pkg builds.
+    # GitHub releases of open source tools are trusted, even for .elf or .pkg builds.
     assert check_urls(["https://github.com/org/tool/releases/download/v1/tool.pkg"], checker.is_allowed_url) == []
 
 
 def test_talking_about_game_files_is_not_piracy():
     for text in ["my default.xex crashes in the recompiler at 0x82000000",
                  "how do I dump my own Xbox 360 disc to an ISO?",
-                 "the .elf loader in ps3recomp handles relocations"]:
+                 "the .elf loader in the emulator handles relocations"]:
         verdict = run(moderator(None).review(Post(text, 1, 1)))
         assert not verdict.flagged, text
 
@@ -294,7 +294,7 @@ def test_mixed_signals_pick_the_bigger_category():
 @pytest.mark.parametrize(
     "url",
     [
-        "https://www.youtube.com/watch?v=abc", "https://youtu.be/abc", "https://github.com/rexglue/rexglue-sdk/wiki",
+        "https://www.youtube.com/watch?v=abc", "https://youtu.be/abc", "https://github.com/example/game-tools/wiki",
         "https://media.tenor.com/x/funny.gif", "https://some-random-host.xyz/reaction.gif",
         "https://en.wikipedia.org/wiki/Static_recompilation", "https://halo.fandom.com/wiki/Halo_3",
         "https://zelda.wiki.gg/wiki/Link", "https://wiki.example.org/page", "https://sonic.wiki",

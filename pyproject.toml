@@ -1,13 +1,14 @@
 [project]
-name = "static-recomp-ai-discord-bot"
+name = "ai-discord-bot"
 version = "0.1.0-alpha"
-description = "Discord assistant and moderator for the static recompilation community"
+description = "Open source Discord assistant and moderator for game communities"
+license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests"]
+testpaths = ["tests", "servers"]
 
 [tool.ruff]
 target-version = "py310"

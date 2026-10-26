@@ -7,7 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY bot ./bot
+# The bot plus any server profiles (servers/); .dockerignore keeps secrets and data out.
+COPY . .
 
 # Cases, warnings and the saved rules live here; mount it so they survive updates.
 VOLUME /app/data

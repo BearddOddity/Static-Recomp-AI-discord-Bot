@@ -7,3 +7,8 @@ __pycache__
 .pytest_cache
 examples
 tests
+*.md
+Dockerfile
+docker-compose.yml
+start.sh
+start.bat

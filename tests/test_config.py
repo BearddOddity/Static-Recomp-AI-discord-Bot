@@ -40,3 +40,31 @@ def test_free_preset_builds_openai_compatible_provider(monkeypatch):
     provider = build_provider(config.load_settings())
     assert isinstance(provider, OpenAICompatibleProvider)
     assert provider._base_url == "https://openrouter.ai/api/v1"
+
+
+def test_template_defaults_are_generic_and_delete_on_warning(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    for name in ("SERVER_PROFILE", "COMMUNITY_ABOUT", "AI_SYSTEM_PROMPT", "DOCS_REPOS", "MOD_ACTION"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AI_SYSTEM_PROMPT", "")  # "AI_SYSTEM_PROMPT=" in .env means the default
+    settings = config.load_settings()
+    assert settings.community_about == "video games"
+    assert settings.system_prompt == "You are a helpful assistant for a Discord community about video games."
+    assert settings.docs_repos == ""
+    assert settings.mod_action == settings.mod_piracy_action == settings.mod_rule_action == "delete"
+    assert not settings.mod_severe_scam_review
+
+
+def test_missing_server_profile_fails_at_startup(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.setenv("SERVER_PROFILE", "servers/nope/server.env")
+    with pytest.raises(RuntimeError, match="SERVER_PROFILE"):
+        config.load_settings()
+
+
+def test_classifier_prompt_names_the_community():
+    from bot.moderation.classifier import system_prompt
+
+    prompt = system_prompt("retro handhelds")
+    assert "Discord server about retro handhelds." in prompt and '{"label"' in prompt
+    assert "recomp" not in system_prompt().lower()

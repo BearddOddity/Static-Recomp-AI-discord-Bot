@@ -7,6 +7,7 @@ the bot restarts (cases live in SQLite, nothing is held in memory).
 import io
 import logging
 import time
+from datetime import datetime, timezone
 
 import discord
 
@@ -27,14 +28,25 @@ LABEL_RANK = {"manual": 0, "rule_violation": 1, "piracy": 2, "scam": 3, "hate_sp
 AUTOMOD_DEDUPE_SECONDS = 30
 AUTOMOD_RULE_CACHE_SECONDS = 3600
 
-# action -> (button label, style, permission the clicking moderator needs)
+# action -> (button label, emoji, style, permission the clicking moderator needs)
 ACTIONS = {
-    "ban": ("Ban", discord.ButtonStyle.danger, "ban_members"),
-    "timeout": ("Timeout until reviewed", discord.ButtonStyle.secondary, "moderate_members"),
-    "lift": ("Lift timeout, keep warning", discord.ButtonStyle.success, "moderate_members"),
-    "dismiss": ("Not a violation", discord.ButtonStyle.secondary, "moderate_members"),
-    "delete": ("Delete message", discord.ButtonStyle.secondary, "manage_messages"),
+    "ban": ("Ban", "🔨", discord.ButtonStyle.danger, "ban_members"),
+    "timeout": ("Timeout until reviewed", "⏸️", discord.ButtonStyle.secondary, "moderate_members"),
+    "lift": ("Lift timeout, keep warning", "✅", discord.ButtonStyle.success, "moderate_members"),
+    "dismiss": ("Not a violation", "↩️", discord.ButtonStyle.secondary, "moderate_members"),
+    "delete": ("Delete message", "🗑️", discord.ButtonStyle.secondary, "manage_messages"),
 }
+
+# How each kind of case looks in the report: (emoji, colour while it's open).
+LOOKS = {
+    "scam": ("🎣", discord.Color.from_rgb(237, 66, 69)),
+    "piracy": ("🏴‍☠️", discord.Color.from_rgb(155, 89, 182)),
+    "hate_speech": ("🛑", discord.Color.from_rgb(153, 0, 0)),
+    "rule_violation": ("📜", discord.Color.from_rgb(250, 166, 26)),
+    "manual": ("🛡️", discord.Color.blurple()),
+}
+CLOSED_COLOR = discord.Color.from_rgb(79, 84, 92)
+QUOTE_LIMIT = 900
 
 
 def custom_id(case_id: int, action: str) -> str:
@@ -62,46 +74,115 @@ def available_actions(case: Case) -> list[str]:
 def build_view(case: Case) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     for action in available_actions(case):
-        label, style, _ = ACTIONS[action]
-        view.add_item(discord.ui.Button(label=label, style=style, custom_id=custom_id(case.id, action)))
+        label, emoji, style, _ = ACTIONS[action]
+        view.add_item(discord.ui.Button(label=label, emoji=emoji, style=style, custom_id=custom_id(case.id, action)))
     return view
 
 
-def build_embed(case: Case, warning_count: int, settings: Settings) -> discord.Embed:
-    status = {
-        "warned": f"Warned ({warning_count}/{settings.mod_warn_limit})",
-        "review": "⏸ In timeout until a moderator reviews",
-        "closed": f"Closed: {case.decision}",
-    }[case.status]
-    color = {"warned": discord.Color.orange(), "review": discord.Color.red(), "closed": discord.Color.dark_grey()}[case.status]
+def warning_meter(count: int, limit: int) -> str:
+    """🟧🟧⬜ 2 of 3: how close the member is to a timeout."""
+    filled = min(count, limit)
+    extra = f" (+{count - limit})" if count > limit else ""
+    return "🟧" * filled + "⬜" * (limit - filled) + f"  **{count} of {limit}**{extra}"
+
+
+def confidence_meter(confidence: float) -> str:
+    filled = round(confidence * 10)
+    return "▰" * filled + "▱" * (10 - filled) + f"  {confidence:.0%}"
+
+
+def quote(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return "*No text, images only.*"
+    if len(text) > QUOTE_LIMIT:
+        text = text[: QUOTE_LIMIT - 1] + "…"
+    # Shown as a quote, with mentions and links left as typed so nothing pings or previews.
+    return "\n".join("> " + line.replace("@", "@\u200b") for line in text.splitlines())
+
+
+def _status_line(case: Case, warning_count: int, settings: Settings) -> str:
+    if case.status == "review":
+        return "🔴 **Waiting for a moderator.** The member is timed out until someone decides."
+    if case.status == "closed":
+        return f"✅ **Closed:** {case.decision}"
+    left = settings.mod_warn_limit - warning_count
+    after = "the next one" if left <= 1 else f"{left} more"
+    return f"🟠 **Warning given.** No action needed; {after} will time them out for review."
+
+
+def build_embed(
+    case: Case, warning_count: int, settings: Settings, member: discord.abc.User | None = None
+) -> discord.Embed:
+    emoji, color = LOOKS.get(case.label, ("⚠️", discord.Color.orange()))
+    if case.status == "closed":
+        color = CLOSED_COLOR
+    elif case.status == "review":
+        color = discord.Color.red() if case.label != "hate_speech" else color
 
     embed = discord.Embed(
-        title=f"Case #{case.id} · {LABEL_NAMES.get(case.label, case.label)}"
-        + (f" ({case.confidence:.0%} confident)" if case.confidence else ""),
-        description=(case.content[:1500] or "*(no text)*"),
+        title=f"{emoji} Case #{case.id} · {LABEL_NAMES.get(case.label, case.label)}",
+        description=f"{_status_line(case, warning_count, settings)}\n\n{quote(case.content)}",
         color=color,
+        timestamp=datetime.fromtimestamp(case.created_at, timezone.utc) if case.created_at else discord.utils.utcnow(),
     )
-    embed.add_field(name="Member", value=f"<@{case.user_id}> ({case.user_id})", inline=True)
+    if member is not None:
+        embed.set_author(name=f"{member.display_name} (@{member.name})", icon_url=member.display_avatar.url)
+        embed.set_thumbnail(url=member.display_avatar.url)
+
+    embed.add_field(name="👤 Member", value=f"<@{case.user_id}>\n`{case.user_id}`", inline=True)
     if case.channel_id:
         where = f"<#{case.channel_id}>"
         if case.message_id and not case.message_deleted:
-            where += f" · [jump](https://discord.com/channels/{case.guild_id}/{case.channel_id}/{case.message_id})"
-        embed.add_field(name="Where", value=where, inline=True)
-    embed.add_field(name="Status", value=status, inline=False)
-    embed.add_field(name="Why", value="\n".join(f"• {r}" for r in case.reasons[:8])[:1024] or "-", inline=False)
+            where += f"\n[Jump to message](https://discord.com/channels/{case.guild_id}/{case.channel_id}/{case.message_id})"
+        elif case.message_deleted:
+            where += "\n*message removed*"
+        embed.add_field(name="📍 Channel", value=where, inline=True)
+    embed.add_field(name="⚠️ Warnings", value=warning_meter(warning_count, settings.mod_warn_limit), inline=True)
+
+    if case.reasons:
+        embed.add_field(name="🔍 Why it was flagged", value="\n".join(f"• {r}" for r in case.reasons[:6])[:1024], inline=False)
+    if case.confidence and case.label != "manual":
+        embed.add_field(name="🎯 Confidence", value=confidence_meter(case.confidence), inline=True)
     if case.urls:
-        embed.add_field(name="Links", value="\n".join(f"`{u}`" for u in case.urls[:5])[:1024], inline=False)
+        # In code formatting so the links can't be clicked from the report.
+        embed.add_field(name="🔗 Links", value="\n".join(f"`{u[:100]}`" for u in case.urls[:5])[:1024], inline=True)
     if case.actions:
-        embed.add_field(name="Actions taken", value="\n".join(f"• {a}" for a in case.actions[-8:])[:1024], inline=False)
+        start = max(0, len(case.actions) - 8)
+        steps = "\n".join(f"`{n}` {a}" for n, a in enumerate(case.actions[start:], start=start + 1))
+        embed.add_field(name="📋 What happened", value=steps[:1024], inline=False)
+
     if case.status == "review":
         embed.add_field(
-            name="Needs a decision",
-            value="Bans are only made by moderators. The member stays timed out until someone decides.",
+            name="🧑‍⚖️ Your decision",
+            value="**Ban** removes them for good (you'll be asked to confirm). **Lift timeout** lets them back "
+            "and keeps the warning. **Not a violation** lifts it and removes the warning.",
             inline=False,
         )
-    who = f"moderator <@{case.created_by}>" if case.created_by else "the bot"
-    embed.set_footer(text=f"Opened by {who}")
-    embed.timestamp = discord.utils.utcnow()
+    elif case.status == "closed" and case.decided_at:
+        embed.add_field(name="🕒 Decided", value=f"<t:{int(case.decided_at)}:R> by <@{case.decided_by}>", inline=False)
+
+    who = "a moderator" if case.created_by else "the bot"
+    embed.set_footer(text=f"Case #{case.id} · opened by {who} · bans are only ever made by moderators")
+    return embed
+
+
+def build_dm_embed(case: Case, number: int, server: str, settings: Settings) -> discord.Embed:
+    emoji, color = LOOKS.get(case.label, ("⚠️", discord.Color.orange()))
+    reason = case.reasons[0] if case.reasons else LABEL_NAMES.get(case.label, case.label)
+    embed = discord.Embed(title=f"{emoji} You received a warning in {server}", color=color)
+    embed.add_field(name="Reason", value=reason[:1024], inline=False)
+    embed.add_field(name="Warnings", value=warning_meter(number, settings.mod_warn_limit), inline=True)
+    if case.message_deleted:
+        embed.add_field(name="Your message", value="Removed", inline=True)
+    if case.status == "review":
+        next_step = "You are **timed out** until a moderator reviews this case."
+    elif number + 1 >= settings.mod_warn_limit:
+        next_step = "One more warning will time you out until a moderator reviews your case."
+    else:
+        next_step = f"At {settings.mod_warn_limit} warnings you are timed out until a moderator reviews your case."
+    embed.add_field(name="What happens next", value=next_step, inline=False)
+    embed.set_footer(text=f"Case #{case.id} · think this is a mistake, or your account was hacked? A moderator will review it.")
     return embed
 
 
@@ -269,17 +350,8 @@ class CaseManager:
     async def _dm(self, member: discord.abc.User, case: Case, number: int) -> None:
         guild = self.client.get_guild(case.guild_id)
         server = guild.name if guild else "the server"
-        lines = [
-            f"**You received a warning in {server}** (case #{case.id}, warning {number} of {self.settings.mod_warn_limit}).",
-            f"Reason: {case.reasons[0] if case.reasons else LABEL_NAMES.get(case.label, case.label)}",
-        ]
-        if case.status == "review":
-            lines.append("You are timed out until a moderator reviews this case.")
-        elif number + 1 >= self.settings.mod_warn_limit:
-            lines.append("One more warning will time you out until a moderator reviews your case.")
-        lines.append("If you think this was a mistake, or your account was hacked, a moderator will review it.")
         try:
-            await member.send("\n".join(lines))
+            await member.send(embed=build_dm_embed(case, number, server, self.settings))
         except discord.HTTPException:
             pass  # DMs closed; the case report still has everything
 
@@ -287,7 +359,7 @@ class CaseManager:
         channel = self._log_channel()
         if channel is None:
             return
-        embed = build_embed(case, self.warning_count(case.guild_id, case.user_id), self.settings)
+        embed = build_embed(case, self.warning_count(case.guild_id, case.user_id), self.settings, self._member(case))
         files = [
             discord.File(io.BytesIO(i.data), filename=f"case{case.id}-{n}.{i.media_type.split('/')[1]}", spoiler=True)
             for n, i in enumerate(images, start=1)
@@ -299,6 +371,10 @@ class CaseManager:
             return
         case.log_channel_id, case.log_message_id = channel.id, sent.id
         self.store.save(case)
+
+    def _member(self, case: Case) -> discord.Member | None:
+        guild = self.client.get_guild(case.guild_id)
+        return guild.get_member(case.user_id) if guild else None
 
     def _log_channel(self) -> discord.abc.Messageable | None:
         if not self.settings.mod_log_channel_id:
@@ -322,7 +398,7 @@ class CaseManager:
             await interaction.response.send_message("That case no longer exists.", ephemeral=True)
             return
 
-        permission = ACTIONS[base_action][2]
+        permission = ACTIONS[base_action][3]
         if not isinstance(interaction.user, discord.Member) or not getattr(interaction.user.guild_permissions, permission):
             await interaction.response.send_message(f"You need the **{permission.replace('_', ' ')}** permission.", ephemeral=True)
             return
@@ -333,7 +409,7 @@ class CaseManager:
         if action == "ban":
             # Bans can't be undone by the bot, so ask once more.
             confirm = discord.ui.View(timeout=60)
-            confirm.add_item(discord.ui.Button(label="Yes, ban this member", style=discord.ButtonStyle.danger,
+            confirm.add_item(discord.ui.Button(label="Yes, ban this member", emoji="🔨", style=discord.ButtonStyle.danger,
                                                custom_id=custom_id(case.id, "ban_confirm")))
             await interaction.response.send_message(
                 f"Ban <@{case.user_id}> for case #{case.id}? Their messages from the last 24 hours will be removed.",
@@ -419,7 +495,7 @@ class CaseManager:
             return
         try:
             message = channel.get_partial_message(case.log_message_id)
-            embed = build_embed(case, self.warning_count(case.guild_id, case.user_id), self.settings)
+            embed = build_embed(case, self.warning_count(case.guild_id, case.user_id), self.settings, self._member(case))
             await message.edit(embed=embed, view=build_view(case))
         except discord.HTTPException:
             log.exception("Could not update the report for case #%s", case.id)

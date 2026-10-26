@@ -39,8 +39,8 @@ REQUIRED_PERMISSIONS = discord.Permissions(
 ANTI_PIRACY = (
     "This server has a strict anti-piracy policy. Never share, link to, name sources for or "
     "help find game files: ROMs, disc images (ISO, BIN/CUE, CHD...), console executables "
-    "(XEX, XBE, ELF, EBOOT.BIN), packages, firmware, BIOS files or keys. If asked, say the "
-    "recompilation projects require dumping games you own, and offer help with that instead."
+    "(XEX, XBE, ELF, EBOOT.BIN), packages, firmware, BIOS files or keys. If asked, explain "
+    "that members must dump games they own themselves, and offer help with that instead."
 )
 
 DOCS_INSTRUCTIONS = (
@@ -89,7 +89,7 @@ class AssistantBot(discord.Client):
                     log.warning("AI provider %s can't see images; image scams are judged by text only", self._mod_ai.name)
             self.moderator = Moderator(
                 LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains, settings.mod_piracy_domains),
-                Classifier(self._mod_ai) if self._mod_ai else None,
+                Classifier(self._mod_ai, community=settings.community_about) if self._mod_ai else None,
                 ai_scan=settings.mod_ai_scan,
                 min_confidence=settings.mod_min_confidence,
             )
@@ -249,7 +249,7 @@ def build_messages(
             Message(
                 "system",
                 f"This question is about the {', '.join(topic_repos)} project. Answer for that "
-                "project only, and don't mix in details from other recompilation projects.",
+                "project only, and don't mix in details from other projects.",
             )
         )
     if excerpts:
@@ -297,7 +297,7 @@ async def ask(interaction: discord.Interaction, question: str) -> None:
     await interaction.response.defer(thinking=True)
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
 
-    # A keyword like "360" or "Xbox" narrows the search to that project's repo. The
+    # A DOCS_ROUTES keyword narrows the search to that project's repo. The
     # keyword itself is dropped from the search, since every chunk there matches it.
     topic_repos, search_text = bot.docs_router.route(question)
     excerpts = bot.docs.search(

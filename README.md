@@ -3,7 +3,7 @@
 > Every recompilation project expects you to dump the games you own yourself.
 
 <h1 align="center">
-  Static Recomp AI<br>
+  Static Recomp AI Bot for Discord<br>
   <a href="https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/releases">
     <img src="https://img.shields.io/github/v/release/BearddOddity/Static-Recomp-AI-discord-Bot?include_prereleases&label=release" alt="Release">
   </a>

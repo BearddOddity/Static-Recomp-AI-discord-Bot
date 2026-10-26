@@ -1,12 +1,14 @@
 import asyncio
 import contextlib
 import logging
+import time
 
 import discord
 from discord import app_commands
 
 from . import __version__
 from .ai import AIProvider, Message, build_provider
+from .assist import ConversationMemory, Turn, conversation_for, find_excerpts, split_reply, strip_mention
 from .config import Settings, load_settings
 from .docs import Chunk, DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
 from .moderation import Classifier, LinkChecker, Moderator
@@ -18,8 +20,6 @@ from .moderation.rules import RulesBook
 
 log = logging.getLogger("bot")
 
-DISCORD_MESSAGE_LIMIT = 2000
-MAX_SOURCES_SHOWN = 3
 RENEW_TIMEOUTS_EVERY_SECONDS = 6 * 3600
 
 # Everything the bot needs. Used for the invite link and /status.
@@ -93,6 +93,9 @@ class AssistantBot(discord.Client):
                 ai_scan=settings.mod_ai_scan,
                 min_confidence=settings.mod_min_confidence,
             )
+
+        self.conversations = ConversationMemory()
+        self._mention_asked: dict[int, float] = {}
 
         self.tree = app_commands.CommandTree(self)
         self.tree.error(on_command_error)
@@ -194,18 +197,70 @@ class AssistantBot(discord.Client):
         if self.rules.is_rules_channel(message.guild, message.channel.id):
             await self.rules.refresh(message.guild)
             return
-        await self._moderate(message)
-
-    async def _moderate(self, message: discord.Message) -> None:
-        if not self.moderator or is_exempt(message, self.settings):
+        if await self._moderate(message):
             return
+        await self._answer_mention(message)
+
+    async def _moderate(self, message: discord.Message) -> bool:
+        """Check a message; True if it was flagged."""
+        if not self.moderator or is_exempt(message, self.settings):
+            return False
         try:
             post = await to_post(message, rules=self.rules.get(message.guild.id))
             verdict = await self.moderator.review(post)
             if verdict.flagged:
                 await self.cases.open_from_message(message, post, verdict)
+                return True
         except Exception:
             log.exception("Moderation failed for message %s", message.id)
+        return False
+
+    async def answer(self, question: str, guild_id: int | None, history: list[Turn] = ()) -> tuple[list[str], Turn]:
+        """Answer a question from the docs. Returns the Discord message parts and the turn
+        to remember for follow-ups. Raises if the AI fails."""
+        excerpts, topic_repos = await find_excerpts(
+            self.docs, self.docs_router, question, limit=self.settings.docs_excerpts,
+            ai=self.ai, ai_query=self.settings.docs_ai_query, history=list(history),
+        )
+        reply = await self.ai.complete(
+            build_messages(
+                self.settings.system_prompt, question, excerpts, topic_repos,
+                rules=self.rules.get(guild_id) if guild_id else "", history=list(history),
+            )
+        )
+        return split_reply(reply, excerpts), Turn(question, reply.strip())
+
+    def _asked_bot(self, message: discord.Message) -> list[Turn] | None:
+        if not self.settings.ask_on_mention or message.guild is None or message.author.bot:
+            return None
+        reference = message.reference.message_id if message.reference else None
+        return conversation_for(message.content, reference, self.user.id, self.conversations)
+
+    async def _answer_mention(self, message: discord.Message) -> None:
+        history = self._asked_bot(message)
+        if history is None:
+            return
+        # Strip the bot's mention so the question reads naturally.
+        question = strip_mention(message.content, self.user.id)
+        if not question:
+            return
+        now = time.monotonic()
+        last = self._mention_asked.get(message.author.id, 0.0)
+        if now - last < self.settings.ask_cooldown_seconds:
+            await message.add_reaction("⏳")
+            return
+        self._mention_asked[message.author.id] = now
+        try:
+            async with message.channel.typing():
+                parts, turn = await self.answer(question, message.guild.id, history)
+        except Exception:
+            log.exception("AI request failed")
+            await message.reply("The AI provider failed. Check the bot logs.", mention_author=False)
+            return
+        for n, part in enumerate(parts):
+            sent = await (message.reply(part, mention_author=False) if n == 0 else message.channel.send(part))
+            # Every part counts, so a reply to any of them continues the conversation.
+            self.conversations.remember(sent.id, history, turn)
 
     async def on_interaction(self, interaction: discord.Interaction) -> None:
         # Case report buttons. Slash commands are handled by the command tree.
@@ -232,7 +287,8 @@ class AssistantBot(discord.Client):
 
 
 def build_messages(
-    system_prompt: str, question: str, excerpts: list[Chunk], topic_repos: list[str] = (), rules: str = ""
+    system_prompt: str, question: str, excerpts: list[Chunk], topic_repos: list[str] = (), rules: str = "",
+    history: list[Turn] = (),
 ) -> list[Message]:
     messages = [Message("system", system_prompt), Message("system", ANTI_PIRACY)]
     if rules.strip():
@@ -258,19 +314,11 @@ def build_messages(
             for n, c in enumerate(excerpts, start=1)
         )
         messages.append(Message("system", f"{DOCS_INSTRUCTIONS}\n\n{body}"))
+    # Earlier turns of this conversation, when the member is asking a follow-up.
+    for turn in history:
+        messages += [Message("user", turn.question), Message("assistant", turn.answer)]
     messages.append(Message("user", question))
     return messages
-
-
-def format_reply(answer: str, excerpts: list[Chunk]) -> str:
-    urls = list(dict.fromkeys(c.document.url for c in excerpts))[:MAX_SOURCES_SHOWN]
-    # Angle brackets stop Discord from adding a link preview for each source.
-    footer = "\n\n-# Sources: " + " ".join(f"<{u}>" for u in urls) if urls else ""
-    answer = answer.strip() or "(empty reply)"
-    room = DISCORD_MESSAGE_LIMIT - len(footer)
-    if len(answer) > room:
-        answer = answer[: room - 1] + "…"
-    return answer + footer
 
 
 def _ask_cooldown(interaction: discord.Interaction) -> app_commands.Cooldown | None:
@@ -296,28 +344,15 @@ async def on_command_error(
 async def ask(interaction: discord.Interaction, question: str) -> None:
     await interaction.response.defer(thinking=True)
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
-
-    # A DOCS_ROUTES keyword narrows the search to that project's repo. The
-    # keyword itself is dropped from the search, since every chunk there matches it.
-    topic_repos, search_text = bot.docs_router.route(question)
-    excerpts = bot.docs.search(
-        search_text if topic_repos else question,
-        limit=bot.settings.docs_excerpts,
-        repos=topic_repos or None,
-    )
     try:
-        answer = await bot.ai.complete(
-            build_messages(
-                bot.settings.system_prompt, question, excerpts, topic_repos,
-                rules=bot.rules.get(interaction.guild_id),
-            )
-        )
+        parts, turn = await bot.answer(question, interaction.guild_id)
     except Exception:
         log.exception("AI request failed")
         await interaction.followup.send("The AI provider failed. Check the bot logs.")
         return
-
-    await interaction.followup.send(format_reply(answer, excerpts))
+    for part in parts:
+        sent = await interaction.followup.send(part, wait=True)
+        bot.conversations.remember(sent.id, [], turn)
 
 
 @app_commands.command(name="reload-docs", description="Re-download the GitHub docs the bot answers from")

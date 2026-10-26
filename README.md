@@ -54,11 +54,20 @@ DOCS_ROUTES=switch 2,switch2=owner/switch2-tools; switch=owner/switch-tools; ps3
 
 Each rule is `keywords=owner/repo`, and rules are separated by `;`. Keywords match whole words and ignore case. Rules are checked in order, and a matched keyword is removed before later rules run. That is why "Switch 2" goes to the first repo and is not also counted as plain "Switch". A question naming two platforms searches both. A question with no keyword searches every repo. Each route's repo must also be listed in `DOCS_REPOS`.
 
-At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, reStructuredText and text files from those repos and splits them into sections by heading. For each `/ask`, it finds the most relevant sections, gives them to the AI with the question, and links the source files under the answer. Server managers can run `/reload-docs` after updating the docs.
+At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, reStructuredText and text files from those repos and splits them into sections by heading. For each question, it finds the most relevant sections, gives them to the AI with the question, and links the source files under the answer. Server managers can run `/reload-docs` after updating the docs.
 
-- Without `GITHUB_TOKEN`, GitHub allows 60 API requests an hour, which covers a few public repos. A read-only fine-grained token raises that and allows private repos.
+**Asking.** Use `/ask`, or just mention the bot (`@Bot how do I build on Linux?`). To ask a follow-up, reply to the bot's answer: it remembers the last few questions, so "and on Windows?" works. Long answers arrive in up to three messages instead of being cut off. `ASK_ON_MENTION=false` turns mentions and replies off.
+
+**How the search finds the right section:**
+
+- Each section knows the headings above it ("Installing > Linux"), so a short subsection is still found by its topic.
+- Sections are split at paragraph breaks, and code blocks are never cut in half.
+- Word forms match ("configured", "configuration"), and so do common synonyms ("setup" and "install", "crash" and "freeze") and small typos ("recompilr").
+- Words that appear side by side in the docs ("save files") rank higher, and no single file can fill every slot.
+- If the question's words barely match the docs, the AI first rephrases it into the words the docs use, then searches again (`DOCS_AI_QUERY=fallback`, the default). `always` does this for every question, for one extra AI call each; `off` never does.
+
+- Without `GITHUB_TOKEN`, GitHub allows 60 API requests an hour, which a shared server can use up. When that happens, the bot reads public repos with `git clone` instead. A read-only fine-grained token raises the limit and allows private repos.
 - Only documentation files are read, not source code. Files over 200 KB, build files such as `CMakeLists.txt`, and folders like `third_party/`, `tests/` and `LICENSES/` are skipped.
-- The search is keyword based. It works best when docs use the same words people ask with.
 
 ## Moderation
 
@@ -190,6 +199,7 @@ The tests use mocked HTTP and Discord objects, so they need no API keys or netwo
 ```
 bot/
   main.py            Discord client, /ask, /reload-docs, /warn, /warnings, /status, events
+  assist.py          Finding doc excerpts, follow-up memory, splitting long answers
   config.py          Reads settings from the environment, .env and SERVER_PROFILE
   docs/
     github.py        Downloads doc files from GitHub repos and wikis

@@ -108,6 +108,18 @@ class GitHubDocsFetcher:
     async def fetch(self, spec: RepoSpec) -> list[Document]:
         if spec.is_wiki:
             return await self.fetch_wiki(spec)
+        try:
+            return await self._fetch_with_api(spec)
+        except httpx.HTTPStatusError as error:
+            # Usually GitHub's 60-requests-an-hour limit for bots without a token, which
+            # a shared server IP can use up. A public repo can still be cloned with git.
+            if error.response.status_code not in (403, 429) or self._has_token:
+                raise
+            log.warning("GitHub API refused %s (HTTP %s); cloning it with git instead",
+                        spec.full_name, error.response.status_code)
+            return await self.fetch_clone(spec)
+
+    async def _fetch_with_api(self, spec: RepoSpec) -> list[Document]:
         ref = spec.ref or await self._default_branch(spec)
 
         tree = await self._get_json(
@@ -120,11 +132,7 @@ class GitHubDocsFetcher:
             item["path"]
             for item in tree.get("tree", [])
             if item.get("type") == "blob"
-            and item["path"].lower().endswith(DOC_EXTENSIONS)
-            and item["path"].rsplit("/", 1)[-1].lower() not in SKIP_NAMES
-            and not SKIP_DIRS.intersection(item["path"].lower().split("/")[:-1])
-            and item.get("size", 0) <= MAX_FILE_BYTES
-            and _under(item["path"], spec.path_prefix)
+            and is_doc_path(item["path"], item.get("size", 0), spec.path_prefix)
         ][: self._max_files]
 
         documents = []
@@ -158,6 +166,35 @@ class GitHubDocsFetcher:
             return None
         return response.text
 
+    async def fetch_clone(self, spec: RepoSpec) -> list[Document]:
+        """Read a public repo's docs from a shallow git clone, without the API."""
+        url = f"https://github.com/{spec.full_name}.git"
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        ref = spec.ref or "HEAD"
+        with tempfile.TemporaryDirectory() as workdir:
+            await self.clone(url, workdir, env, branch=spec.ref)
+            folder = Path(workdir)
+            documents = []
+            for file in sorted(folder.rglob("*")):
+                relative = file.relative_to(folder).as_posix()
+                if (
+                    not file.is_file()
+                    or relative.startswith(".git/")
+                    or not is_doc_path(relative, file.stat().st_size, spec.path_prefix)
+                ):
+                    continue
+                documents.append(
+                    Document(
+                        repo=spec.full_name,
+                        path=relative,
+                        url=f"https://github.com/{spec.full_name}/blob/{quote(ref)}/{quote(relative)}",
+                        text=file.read_text(encoding="utf-8", errors="replace"),
+                    )
+                )
+                if len(documents) == self._max_files:
+                    break
+            return documents
+
     async def fetch_wiki(self, spec: RepoSpec) -> list[Document]:
         """GitHub has no API that lists wiki pages, but every wiki is a small git
         repo, so it is shallow-cloned into a temporary folder and read from there."""
@@ -185,9 +222,9 @@ class GitHubDocsFetcher:
             return wiki_documents(spec, Path(workdir))
 
     @staticmethod
-    async def clone(url: str, dest: str, env: dict[str, str]) -> None:
+    async def clone(url: str, dest: str, env: dict[str, str], branch: str | None = None) -> None:
         process = await asyncio.create_subprocess_exec(
-            "git", "clone", "--quiet", "--depth", "1", url, dest,
+            "git", "clone", "--quiet", "--depth", "1", *(["--branch", branch] if branch else []), url, dest,
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
@@ -238,6 +275,18 @@ def wiki_documents(spec: RepoSpec, folder: Path) -> list[Document]:
             )
         )
     return documents
+
+
+def is_doc_path(path: str, size: int, prefix: str = "") -> bool:
+    """A documentation file worth indexing: the right extension, not a build or license
+    file, not in a vendored or test folder, not too big, and under the chosen folder."""
+    return (
+        path.lower().endswith(DOC_EXTENSIONS)
+        and path.rsplit("/", 1)[-1].lower() not in SKIP_NAMES
+        and not SKIP_DIRS.intersection(path.lower().split("/")[:-1])
+        and size <= MAX_FILE_BYTES
+        and _under(path, prefix)
+    )
 
 
 def _under(path: str, prefix: str) -> bool:

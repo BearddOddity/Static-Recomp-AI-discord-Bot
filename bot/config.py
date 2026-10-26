@@ -45,6 +45,8 @@ class Settings:
     github_token: str
     docs_refresh_minutes: float
     docs_excerpts: int
+    docs_ai_query: str  # "off", "fallback" or "always"
+    ask_on_mention: bool
 
     mod_enabled: bool
     mod_log_channel_id: int | None
@@ -170,6 +172,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         github_token=os.getenv("GITHUB_TOKEN", ""),
         docs_refresh_minutes=float(os.getenv("DOCS_REFRESH_MINUTES", "360")),
         docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),
+        docs_ai_query=_choice("DOCS_AI_QUERY", "fallback", ("off", "fallback", "always")),
+        ask_on_mention=_flag("ASK_ON_MENTION", True),
         mod_enabled=_flag("MOD_ENABLED", True),
         mod_log_channel_id=_optional_int("MOD_LOG_CHANNEL_ID"),
         mod_action=_choice("MOD_ACTION", "delete", ("delete", "flag")),

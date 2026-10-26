@@ -13,6 +13,9 @@ First public test build. Expect rough edges; please report problems as GitHub is
 ### Assistance
 - `/ask` answers questions using documentation pulled from the GitHub repos and wikis you list, with source links under every answer.
 - Keyword routing sends a question that names a platform to that project's docs only.
+- Ask by mentioning the bot, and ask follow-ups by replying to its answer. Long answers come in up to three messages instead of being cut off.
+- Smarter doc search: sections keep their parent headings, code blocks are never split, word forms, synonyms and typos match, side-by-side words rank higher, and one file can't fill every result. When a question's words barely match the docs, the AI rephrases it and searches again.
+- If GitHub's API limit is used up, public repos are read with `git clone` instead of being skipped.
 - Any AI backend: Claude, OpenRouter (free models, nothing to host), Groq, Gemini, any OpenAI-compatible API, a local Ollama model, or a command-line tool.
 - Follows the server's rules channel and the anti-piracy policy in its answers.
 
@@ -38,5 +41,6 @@ First public test build. Expect rough edges; please report problems as GitHub is
 - Not yet tested in a live Discord server at scale; this alpha is for that.
 - In the default `MOD_AI_SCAN=suspicious` mode, the AI only sees posts that already look risky. Hate speech in plain text relies on Discord AutoMod's Slurs filter, and rules-channel violations that don't look like scams are mostly missed. `MOD_AI_SCAN=all` covers everything, at one AI call per message.
 - Image-only scams need a vision-capable model (`MOD_AI_MODEL`).
-- Docs search is keyword based.
+- Docs search is keyword based with AI rephrasing; it doesn't understand meaning the way embeddings would.
+- Follow-up memory is lost when the bot restarts.
 - The Docker image hasn't been built and tested yet.

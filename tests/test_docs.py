@@ -1,10 +1,12 @@
 import asyncio
+from pathlib import Path
 
 import httpx
 import pytest
 
+from bot.assist import Turn
 from bot.docs import DocsIndex, Document, GitHubDocsFetcher, RepoSpec, parse_repo_list
-from bot.main import build_messages, format_reply
+from bot.main import build_messages
 
 
 def doc(path: str, text: str) -> Document:
@@ -32,16 +34,12 @@ def test_search_prefers_the_matching_section():
     assert index.search("the and of") == []
 
 
-def test_reply_includes_sources_and_fits_discord_limit():
+def test_messages_include_excerpts_and_history():
     chunk = DocsIndex([doc("README.md", "# Setup\nInstall it.")]).search("setup install")[0]
-    reply = format_reply("x" * 5000, [chunk])
-    assert len(reply) <= 2000
-    assert reply.endswith("<https://github.com/org/repo/blob/main/README.md>")
-
-    messages = build_messages("Be helpful.", "setup?", [chunk])
-    assert [m.role for m in messages][-1] == "user"
+    messages = build_messages("Be helpful.", "setup?", [chunk], history=[Turn("q1", "a1")])
+    assert [m.role for m in messages][-3:] == ["user", "assistant", "user"]
     assert any("Install it." in m.content for m in messages if m.role == "system")
-    assert format_reply("hi", []) == "hi"
+    assert "(Setup)" in next(m.content for m in messages if "Install it." in m.content)
 
 
 def test_fetcher_lists_tree_and_downloads_doc_files_under_prefix():
@@ -116,3 +114,22 @@ def test_wiki_pages_become_documents(tmp_path):
     assert [d.path for d in documents] == ["wiki/Home.md", "wiki/Kernel-State-&-Objects.md"]
     assert {d.repo for d in documents} == {"org/repo"}
     assert documents[1].url == "https://github.com/org/repo/wiki/Kernel-State-%26-Objects"
+
+
+def test_rate_limited_api_falls_back_to_git_clone(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "API rate limit exceeded"})
+
+    async def fake_clone(url, dest, env, branch=None):
+        root = Path(dest)
+        (root / "docs").mkdir()
+        (root / "docs" / "guide.md").write_text("# Guide\nHello")
+        (root / "src.cpp").write_text("int main() {}")
+        (root / "tests").mkdir()
+        (root / "tests" / "notes.md").write_text("# skip me")
+
+    fetcher = GitHubDocsFetcher(client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(fetcher, "clone", fake_clone)
+    documents = asyncio.run(fetcher.fetch(RepoSpec("org", "repo")))
+    assert [d.path for d in documents] == ["docs/guide.md"]
+    assert documents[0].url == "https://github.com/org/repo/blob/HEAD/docs/guide.md"

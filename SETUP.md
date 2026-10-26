@@ -107,7 +107,7 @@ When you see `Logged in as ...`, the bot is online.
 In your server, type **`/status`**. It checks the AI, the case report channel, the rules, the docs, the AutoMod slur filter, the bot's permissions and its role position. Fix anything marked ⚠️.
 
 Then try it:
-- `/ask question: how do I get started?`
+- `/ask question: how do I get started?`, or mention the bot with a question. Reply to its answer to ask a follow-up.
 - From a **non-moderator** account (moderators are never moderated), post `free nitro at dlscord-gift.com`. The message should disappear, the account should get a warning DM, and a case report with buttons should appear in `#mod-log`.
 
 ## 9. Keep it running

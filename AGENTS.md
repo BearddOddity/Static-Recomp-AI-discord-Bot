@@ -30,7 +30,8 @@ The server owner is not necessarily a programmer. Keep setup simple, defaults sa
 
 ```
 bot/
-  main.py                Discord client: /ask, /reload-docs, on_message -> moderation
+  main.py                Discord client: /ask, mentions, /reload-docs, on_message -> moderation
+  assist.py              find_excerpts (search + AI rephrase), ConversationMemory (follow-ups), split_reply
   config.py              All settings, read from environment / .env / SERVER_PROFILE (single source of truth)
   ai/
     base.py              AIProvider, Message, Image (the provider contract)
@@ -94,7 +95,7 @@ Ordered roughly by value. Check with the server owner before large changes.
 - A cheap text pre-check for hate speech that doesn't rely on AutoMod, so `MOD_AI_SCAN=suspicious` catches it without an AI call on every message.
 - When cross-posting is detected, also clean up the earlier copies in other channels.
 - Perceptual image hashing, so slightly cropped or recompressed copies of known scam images match without an AI call.
-- Better `/ask`: embeddings-based search, follow-up questions in threads, per-channel default project.
+- Better `/ask`: embeddings-based search for providers that offer embeddings (keep BM25 as the fallback), a per-channel default project, and keeping follow-up memory across restarts.
 - A small evaluation set (`examples/ok/` alongside `examples/scam/`) plus a script that reports precision and recall for the current model and prompt.
 
 ## Running locally

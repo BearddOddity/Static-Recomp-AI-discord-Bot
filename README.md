@@ -3,7 +3,7 @@
 > Every recompilation project expects you to dump the games you own yourself.
 
 <h1 align="center">
-  <img src="./docs/banner.png" alt="Static Recomp AI">
+  Static Recomp AI<br>
   <a href="https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/releases">
     <img src="https://img.shields.io/github/v/release/BearddOddity/Static-Recomp-AI-discord-Bot?include_prereleases&label=release" alt="Release">
   </a>
@@ -16,8 +16,6 @@
     <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
   </a>
 </h1>
-
-# Static Recomp AI
 
 Static Recomp AI is an open source Discord bot for the static recompilation community: an AI assistant and a moderator in one. As an assistant, it has a personality inspired by Tony Stark's J.A.R.V.I.S. It answers anything members ask, and it uses the docs of [xboxrecomp](https://github.com/sp00nznet/xboxrecomp), [ps3recomp](https://github.com/sp00nznet/ps3recomp) and [ReXGlue](https://github.com/rexglue/rexglue-sdk) as its reference. As a moderator, it catches scams (including scams made only of screenshots), piracy and hate speech. It warns members first and leaves every ban to a human. It runs on free AI models with nothing to host, on Claude, or on a model on your own machine.
 

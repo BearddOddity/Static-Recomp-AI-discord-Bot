@@ -14,12 +14,15 @@ DISCORD_MESSAGE_LIMIT = 2000
 class AssistantBot(discord.Client):
     def __init__(self, settings: Settings):
         intents = discord.Intents.default()
+        # Privileged: enable "Message Content Intent" in the Developer Portal.
         intents.message_content = True
-        super().__init__(intents=intents)
+        # AI output is untrusted, so the bot never pings @everyone, roles or users.
+        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
 
         self.settings = settings
         self.ai: AIProvider = build_provider(settings)
         self.tree = app_commands.CommandTree(self)
+        self.tree.error(on_command_error)
         self.tree.add_command(ask)
 
     async def setup_hook(self) -> None:
@@ -44,8 +47,26 @@ class AssistantBot(discord.Client):
         await super().close()
 
 
+def _ask_cooldown(interaction: discord.Interaction) -> app_commands.Cooldown | None:
+    # One /ask per user per ASK_COOLDOWN_SECONDS, so nobody can run up API costs.
+    seconds = interaction.client.settings.ask_cooldown_seconds  # type: ignore[attr-defined]
+    return app_commands.Cooldown(1, seconds) if seconds > 0 else None
+
+
+async def on_command_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+) -> None:
+    if isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(
+            f"Slow down. Try again in {error.retry_after:.0f}s.", ephemeral=True
+        )
+        return
+    log.error("Command error", exc_info=error)
+
+
 @app_commands.command(name="ask", description="Ask the community AI assistant a question")
 @app_commands.describe(question="What do you want to know?")
+@app_commands.checks.dynamic_cooldown(_ask_cooldown, key=lambda i: i.user.id)
 async def ask(interaction: discord.Interaction, question: str) -> None:
     await interaction.response.defer(thinking=True)
     bot: AssistantBot = interaction.client  # type: ignore[assignment]

@@ -22,9 +22,13 @@ Free tiers have rate and daily limits, and the list of free models changes over 
 
 For `cli`, the bot runs `AI_CLI_COMMAND` without a shell. It writes the conversation to stdin and reads the reply from stdout. Quote any arguments that contain spaces. Test the command in a terminal first.
 
+> **Warning for `cli`:** coding agents such as Kilo or OpenCode can read files and run commands. With `cli`, anyone in your server can send that agent a prompt. Run it in a non-interactive, read-only mode, ideally in a sandbox or container. Never run it in a folder that holds secrets.
+
 ## Setup
 
-1. Create a Discord application and bot at https://discord.com/developers/applications. Copy the bot token. Invite the bot with the `applications.commands` and `bot` scopes.
+Requires Python 3.10 or newer.
+
+1. Create a Discord application and bot at https://discord.com/developers/applications. Copy the bot token. Under **Bot**, turn on **Message Content Intent**, or the bot will fail to log in. Invite the bot with the `bot` and `applications.commands` scopes.
 2. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN` and your chosen provider.
 3. Install and run:
 

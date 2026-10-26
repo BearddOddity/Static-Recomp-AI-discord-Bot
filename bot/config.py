@@ -33,6 +33,20 @@ class Settings:
     ollama_model: str
 
     ai_cli_command: str
+    ask_cooldown_seconds: float
+
+
+# Settings each provider cannot work without, checked at startup so a missing
+# key fails immediately instead of on the first /ask.
+REQUIRED_BY_PROVIDER = {
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openrouter": ("OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_MODEL"),
+    "groq": ("OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_MODEL"),
+    "gemini": ("OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_MODEL"),
+    "openai_compatible": ("OPENAI_COMPAT_BASE_URL", "OPENAI_COMPAT_MODEL"),
+    "ollama": (),
+    "cli": ("AI_CLI_COMMAND",),
+}
 
 
 def _required(name: str) -> str:
@@ -48,6 +62,10 @@ def load_settings() -> Settings:
     provider = os.getenv("AI_PROVIDER", "anthropic").strip().lower()
     if provider not in PROVIDERS:
         raise RuntimeError(f"AI_PROVIDER must be one of: {', '.join(PROVIDERS)}")
+
+    missing = [name for name in REQUIRED_BY_PROVIDER[provider] if not os.getenv(name, "").strip()]
+    if missing:
+        raise RuntimeError(f"AI_PROVIDER={provider} needs: {', '.join(missing)}")
 
     guild = os.getenv("DISCORD_GUILD_ID", "").strip()
 
@@ -68,4 +86,5 @@ def load_settings() -> Settings:
         ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
         ai_cli_command=os.getenv("AI_CLI_COMMAND", ""),
+        ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "30")),
     )

@@ -286,3 +286,36 @@ def test_mixed_signals_pick_the_bigger_category():
     verdict = run(moderator(None).review(Post(text, 1, 1, attachment_count=1, attachment_names=["game.iso"])))
     assert verdict.label == "piracy"  # 100 piracy vs 100 scam: tie goes to piracy
     assert any("dlscord" in r for r in verdict.reasons)
+
+
+# --- safe links ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.youtube.com/watch?v=abc", "https://youtu.be/abc", "https://github.com/rexglue/rexglue-sdk/wiki",
+        "https://media.tenor.com/x/funny.gif", "https://some-random-host.xyz/reaction.gif",
+        "https://en.wikipedia.org/wiki/Static_recompilation", "https://halo.fandom.com/wiki/Halo_3",
+        "https://zelda.wiki.gg/wiki/Link", "https://wiki.example.org/page", "https://sonic.wiki",
+        "https://news.example.com/article", "https://someones-blog.net/post",
+    ],
+)
+def test_safe_and_ordinary_links_add_no_risk(url):
+    checker = LinkChecker()
+    assert checker.check([url]) == []
+    assert check_urls([url], checker.is_allowed_url) == []
+
+
+def test_gif_or_wiki_cannot_hide_a_lookalike_or_blocked_domain():
+    checker = LinkChecker()
+    assert "imitates discord" in checker.check(["https://dlscord-wiki.com/page"])[0].reason
+    assert checker.check(["https://kegwin.com/promo.gif"])[0].weight == 100
+
+
+def test_links_from_regular_members_never_flag_on_their_own():
+    post = Post("check this out https://someones-blog.net/post and https://cool.xyz/thing", 1, 1,
+                account_age_days=400, member_age_hours=3000)
+    # Rules alone never flag ordinary links; an unusual TLD only asks the AI for a second look.
+    assert not run(moderator(None).review(post)).flagged
+    assert not run(moderator(FakeAI('{"label": "ok", "confidence": 0.9}')).review(post)).flagged

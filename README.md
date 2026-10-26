@@ -54,6 +54,8 @@ The bot checks every message from members (anyone with **Manage Messages** is sk
 
 **Free speech:** opinions, criticism, rudeness, profanity, dark humour and heated arguments are never flagged, even if your rules channel asks for civility. The only speech that gets moderated is **hate speech** (attacks on people for their race, religion, sexuality, gender identity, disability and similar, or threats of violence). Hate speech always times the member out until a moderator reviews the case. It's caught two ways: Discord's built-in **AutoMod Slurs filter** (free and instant, turn it on as described in [SETUP.md](SETUP.md)), and the AI when it reviews a message.
 
+**Links are welcome.** YouTube, GitHub, any GIF, and any wiki (Wikipedia, Fandom, wiki.gg, project wikis) are always safe, and every other link is fine too. A link only counts against someone if it's a known scam or piracy site, imitates a brand (`dlscord-gift.com`), or points straight at a game file. Links from brand-new accounts, or with odd signs like a shortener, get a quick AI second look, but are never flagged just for being a link.
+
 **Anti-piracy policy:** no links to pirated content, and no sharing game files of any kind. That covers console executables (`.elf`, `.xbe`, `.xex`, `.self`, `EBOOT.BIN`), disc images (`.iso`, `.bin`+`.cue`, `.chd`, `.cso`, `.rvz`, `.wbfs` and more), ROMs, console packages (`.pkg`, `.nsp`, `.xci`) and license keys. These are recognised by the rules, with no AI guesswork:
 
 - **game files attached** to a message, including ones hidden inside a `.zip`
@@ -164,10 +166,12 @@ Set `DISCORD_GUILD_ID` to your server ID while testing so commands update right 
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
+ruff check bot tests
 pytest
 ```
 
-The provider tests use mocked HTTP responses, so they need no API keys.
+The tests use mocked HTTP and Discord objects, so they need no API keys or network. GitHub runs them on every push (`.github/workflows/tests.yml`).
 
 ## Layout
 

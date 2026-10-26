@@ -54,8 +54,12 @@ don't target a protected characteristic, profanity, dark humour, heated argument
 controversial views. Quoting, reporting or discussing a slur or hateful message (for \
 example "someone called me X, is that allowed?") is not hate speech. When in doubt, it is ok.
 
+LINKS are welcome in general: YouTube, GitHub, GIFs, wikis (Wikipedia, Fandom, wiki.gg \
+and others), news, blogs, forums and documentation. A link is only a problem when it \
+leads to a scam or to pirated game files.
+
 OK includes normal chat, development talk, screenshots of recompiled games, build errors, \
-GitHub links, people asking whether something is a scam, and everything protected above.
+links as above, people asking whether something is a scam, and everything protected above.
 
 Reply with JSON only, no other text:
 {"label": "ok" | "scam" | "piracy" | "hate_speech" | "rule_violation", "confidence": 0.0-1.0, "reasons": ["short reason", ...]}"""

@@ -32,5 +32,5 @@ class AIProvider(ABC):
     async def complete(self, messages: list[Message]) -> str:
         """Return the model's reply text for the conversation so far."""
 
-    async def aclose(self) -> None:
+    async def aclose(self) -> None:  # noqa: B027 - optional hook, a no-op by default
         """Release any HTTP clients or subprocesses. Override when needed."""

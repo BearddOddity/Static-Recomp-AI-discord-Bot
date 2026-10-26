@@ -5,6 +5,7 @@ import logging
 import discord
 from discord import app_commands
 
+from . import __version__
 from .ai import AIProvider, Message, build_provider
 from .config import Settings, load_settings
 from .docs import Chunk, DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
@@ -144,7 +145,7 @@ class AssistantBot(discord.Client):
             await asyncio.sleep(RENEW_TIMEOUTS_EVERY_SECONDS)
 
     async def on_ready(self) -> None:
-        log.info("Logged in as %s using AI provider %s", self.user, self.ai.name)
+        log.info("Logged in as %s (v%s) using AI provider %s", self.user, __version__, self.ai.name)
         log.info("Invite link: %s", invite_url(self.application_id))
         if not self.settings.mod_log_channel_id:
             log.warning("MOD_LOG_CHANNEL_ID is not set: cases are saved but moderators get no reports or buttons")
@@ -387,7 +388,7 @@ async def status(interaction: discord.Interaction) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
     settings, guild = bot.settings, interaction.guild
     ok, bad = "✅", "⚠️"
-    lines = [f"**{bot.user.name} status**"]
+    lines = [f"**{bot.user.name} status** (v{__version__})"]
 
     lines.append(f"{ok} AI for /ask: `{bot.ai.name}`")
     if not settings.mod_enabled:

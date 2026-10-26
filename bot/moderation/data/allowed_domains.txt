@@ -1,5 +1,7 @@
 # Domains that never add link risk. One per line; subdomains match too.
-# Add more with MOD_ALLOWED_DOMAINS.
+# Add more with MOD_ALLOWED_DOMAINS. Besides these, any link to a .gif and any
+# wiki (wiki.example.org, *.wiki) is safe, and every other link is fine too unless
+# the rules or the AI find it's a scam or leads to game files.
 github.com
 githubusercontent.com
 github.io
@@ -25,3 +27,24 @@ microsoft.com
 nvidia.com
 amd.com
 python.org
+# Video
+youtube-nocookie.com
+vimeo.com
+streamable.com
+# GIFs and images
+gfycat.com
+klipy.com
+media.discordapp.net
+# Wikis
+fandom.com
+wikia.com
+wiki.gg
+wikimedia.org
+wiktionary.org
+miraheze.org
+# Developer sites
+stackoverflow.com
+sourceforge.net
+codeberg.org
+readthedocs.io
+pypi.org

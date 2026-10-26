@@ -58,6 +58,15 @@ def domain_of(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+def is_gif_or_wiki(domain: str, url: str) -> bool:
+    """Any GIF link, and any wiki (wiki.example.org, example.wiki, Fandom, wiki.gg...)."""
+    path = urlsplit(url if "://" in url else "http://" + url).path.lower()
+    if path.endswith((".gif", ".gifv")):
+        return True
+    labels = domain.split(".")
+    return "wiki" in labels or labels[-1] == "wiki" or any(label.startswith("wiki") for label in labels[:-1])
+
+
 def _matches(domain: str, listed: frozenset[str]) -> bool:
     """True if domain is listed or is a subdomain of a listed domain."""
     parts = domain.split(".")
@@ -91,7 +100,8 @@ class LinkChecker:
         return _matches(domain, self.allowed)
 
     def is_allowed_url(self, url: str) -> bool:
-        return self.is_allowed(domain_of(url))
+        domain = domain_of(url)
+        return self.is_allowed(domain) or is_gif_or_wiki(domain, url)
 
     def check(self, urls: list[str]) -> list[Signal]:
         signals = []
@@ -116,6 +126,10 @@ class LinkChecker:
 
         if self.is_allowed(domain):
             return []
+        lookalike = self._lookalike(domain)
+        if is_gif_or_wiki(domain, url):
+            # GIFs and wikis are always welcome, unless the domain imitates a brand.
+            return [Signal(f"{domain} imitates {lookalike}", 60)] if lookalike else []
 
         signals = []
         try:
@@ -130,7 +144,6 @@ class LinkChecker:
         if domain.rsplit(".", 1)[-1] in SUSPICIOUS_TLDS:
             signals.append(Signal(f"domain uses a TLD common in scams ({domain})", 15))
 
-        lookalike = self._lookalike(domain)
         if lookalike:
             signals.append(Signal(f"{domain} imitates {lookalike}", 60))
         return signals

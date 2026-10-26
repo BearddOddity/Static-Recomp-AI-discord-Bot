@@ -166,7 +166,10 @@ class FakeDiscord:
         return interaction
 
 
-def flag(fake, verdict=Verdict("piracy", 0.8, ("iso link",), "ai")):
+SUSPECTED_PIRACY = Verdict("piracy", 0.8, ("iso link",), "ai")
+
+
+def flag(fake, verdict=SUSPECTED_PIRACY):
     return run(fake.manager.open_from_message(fake.message(), Post("free nitro", 2, 3), verdict))
 
 

@@ -21,7 +21,7 @@ The server owner is not necessarily a programmer. Keep setup simple, defaults sa
 - **Don't make the bot depend on one AI vendor.** Everything goes through `AIProvider` (`bot/ai/base.py`). New features must work with every provider, or degrade gracefully (as image moderation does with `supports_images`).
 - **Keep the free, no-hosting path working.** A user with only a free OpenRouter key must be able to run `/ask` and moderation.
 - **Anti-piracy policy (from the server owner):** no links to pirated content and no sharing game files of any kind: executables (.elf .xbe .xex .self EBOOT.BIN), disc images (.iso, .bin+.cue, .chd, .cso, .rvz, .wbfs ...), ROMs, packages (.pkg .nsp .xci), firmware, BIOS files and keys. Game-file attachments (including inside .zip files), piracy-site links and direct game-file links are *certain* (rule score 100). They are always deleted and follow the warning ladder (no instant timeout). Mentioning file names while debugging ("default.xex crashes") and explaining how to dump your own disc are allowed; never flag those. The list of extensions is in `bot/moderation/files.py`.
-- **Tests must pass.** Run `pytest` before you finish. Add tests for new behaviour. Tests must not need network access or API keys; mock HTTP with `httpx.MockTransport` and models with a fake `AIProvider`, as the existing tests do.
+- **Tests and lint must pass.** Run `ruff check bot tests` and `pytest` before you finish; CI runs both on Python 3.10 and 3.12. Add tests for new behaviour. Tests must not need network access or API keys; mock HTTP with `httpx.MockTransport` and models with a fake `AIProvider`, as the existing tests do.
 - **Match the existing style:** small modules, type hints, dataclasses, short comments that explain *why*, and no new dependencies unless clearly worth it.
 
 ## Map of the code
@@ -77,6 +77,7 @@ When tuning weights, keep a single weak signal below the AI threshold, and keep 
 - **New scam style:** add a `(regex, reason, weight)` to `bot/moderation/text.py`, describe it in the classifier prompt in `classifier.py`, and add a test case. If you have screenshots, add them to `examples/scam/` (strip personal info first) and to the tests.
 - **New AI provider:** subclass `AIProvider`, set `supports_images`, add a branch in `bot/ai/__init__.py`, add it to `PROVIDERS` and `REQUIRED_BY_PROVIDER` in `config.py`, document it in the README table, and add a mocked test.
 - **New docs source:** add it to `DOCS_REPOS` (use `owner/repo.wiki` for wikis), and add a `DOCS_ROUTES` keyword if it belongs to one platform.
+- **Releasing:** bump `__version__` in `bot/__init__.py` and `version` in `pyproject.toml`, add a CHANGELOG entry, tag `vX.Y.Z[-alpha|-beta]`.
 - **New setting:** add it to `Settings` and `load_settings()` in `config.py`, to `.env.example`, and to the README (and SETUP.md if a server owner must set it).
 - **New permission:** add it to `REQUIRED_PERMISSIONS` in `main.py`, then update the invite link number and the table in SETUP.md (`python -c "import bot.main as m; print(m.REQUIRED_PERMISSIONS.value)"`).
 
@@ -97,9 +98,9 @@ Ordered roughly by value. Check with the server owner before large changes.
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env    # then fill it in
-pytest
+ruff check bot tests && pytest
 python -m bot.moderation.check examples/scam/*.webp   # needs an AI key with vision
 python -m bot.main
 ```

@@ -20,6 +20,8 @@ ASK_AI_SCORE = 20
 DUPLICATE_WINDOW_SECONDS = 120
 DUPLICATE_CHANNELS = 3
 CACHE_SIZE = 1000
+# Forget members' recent posts once this many are tracked, so memory stays flat.
+MAX_TRACKED_AUTHORS = 5000
 
 
 @dataclass
@@ -153,10 +155,16 @@ class Moderator:
         while history and post.created_at - history[0][0] > DUPLICATE_WINDOW_SECONDS:
             history.popleft()
         history.append((post.created_at, fingerprint, post.channel_id))
+        if len(self._recent) > MAX_TRACKED_AUTHORS:
+            self._forget_quiet_authors(post.created_at)
         channels = {channel for _, fp, channel in history if fp == fingerprint}
         if len(channels) >= DUPLICATE_CHANNELS:
             return Signal(f"same message posted in {len(channels)} channels within 2 minutes", 50)
         return None
+
+    def _forget_quiet_authors(self, now: float) -> None:
+        for author in [a for a, h in self._recent.items() if not h or now - h[-1][0] > DUPLICATE_WINDOW_SECONDS]:
+            del self._recent[author]
 
     @staticmethod
     def _content_key(post: Post) -> str:

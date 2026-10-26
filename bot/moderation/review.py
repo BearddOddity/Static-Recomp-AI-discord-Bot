@@ -19,6 +19,14 @@ log = logging.getLogger("bot.moderation")
 
 PREFIX = "case"
 
+# A new violation joins the member's case if it's still waiting for review, or was
+# opened in the last few minutes, so a burst of cross-posts makes one report.
+MERGE_WINDOW_SECONDS = 600
+# Which label a merged case shows when it holds several kinds of violation.
+LABEL_RANK = {"manual": 0, "rule_violation": 1, "piracy": 2, "scam": 3, "hate_speech": 4}
+AUTOMOD_DEDUPE_SECONDS = 30
+AUTOMOD_RULE_CACHE_SECONDS = 3600
+
 # action -> (button label, style, permission the clicking moderator needs)
 ACTIONS = {
     "ban": ("Ban", discord.ButtonStyle.danger, "ban_members"),
@@ -102,6 +110,8 @@ class CaseManager:
         self.client = client
         self.store = store
         self.settings = settings
+        self._automod_seen: dict[tuple, float] = {}
+        self._automod_rules: dict[int, tuple[float, bool]] = {}
 
     def warning_count(self, guild_id: int, user_id: int) -> int:
         return len(self.store.active_warnings(guild_id, user_id, self.settings.mod_warn_expiry_days))
@@ -109,13 +119,104 @@ class CaseManager:
     # --- opening cases -----------------------------------------------------
 
     async def open_from_message(self, message: discord.Message, post: Post, verdict: Verdict) -> Case:
+        severe = is_severe(verdict, self.settings)
+        existing = self.store.recent_open_case(message.guild.id, message.author.id, MERGE_WINDOW_SECONDS)
+        if existing:
+            await self._add_violation(existing, message.author, verdict.label, list(verdict.reasons), severe, message)
+            return existing
         case = self.store.create_case(
             message.guild.id, message.author.id, verdict.label, list(verdict.reasons),
             channel_id=message.channel.id, message_id=message.id, confidence=verdict.confidence,
             content=message.content, urls=list(verdict.urls),
         )
-        await self._apply(case, message.author, is_severe(verdict, self.settings), message, post.images)
+        await self._apply(case, message.author, severe, message, post.images)
         return case
+
+    async def open_from_automod(self, execution: discord.AutoModAction) -> Case | None:
+        """Discord's AutoMod caught something. Its "Slurs" filter (and any rules listed in
+        MOD_HATE_AUTOMOD_RULE_IDS) count as hate speech: timeout and a case for review."""
+        if not await self._is_hate_rule(execution):
+            return None
+        # AutoMod sends one event per action it took (block, alert, ...); handle once.
+        now = time.monotonic()
+        key = (execution.guild_id, execution.user_id, execution.rule_id, execution.content)
+        self._automod_seen = {k: t for k, t in self._automod_seen.items() if now - t < AUTOMOD_DEDUPE_SECONDS}
+        if key in self._automod_seen:
+            return None
+        self._automod_seen[key] = now
+
+        guild = execution.guild
+        member = execution.member
+        if member is None:
+            try:
+                member = await guild.fetch_member(execution.user_id)
+            except discord.HTTPException:
+                return None
+        if member.bot or member.guild_permissions.manage_messages:
+            return None
+
+        matched = execution.matched_keyword or execution.matched_content or "a filtered word"
+        reasons = ["hate speech caught by Discord's AutoMod slur filter", f"matched: ||{matched}||"]
+        existing = self.store.recent_open_case(guild.id, member.id, MERGE_WINDOW_SECONDS)
+        if existing:
+            await self._add_violation(existing, member, "hate_speech", reasons, True, None, execution.channel_id)
+            return existing
+
+        case = self.store.create_case(
+            guild.id, member.id, "hate_speech", reasons, channel_id=execution.channel_id,
+            message_id=execution.message_id, confidence=1.0, content=execution.content,
+        )
+        if execution.message_id is None:
+            case.message_deleted = True
+            case.actions.append("AutoMod blocked the message")
+        await self._apply(case, member, True, None, [])
+        return case
+
+    async def _is_hate_rule(self, execution: discord.AutoModAction) -> bool:
+        if execution.rule_id in self.settings.mod_hate_automod_rule_ids:
+            return True
+        if execution.rule_trigger_type != discord.AutoModRuleTriggerType.keyword_preset:
+            return False
+        cached = self._automod_rules.get(execution.rule_id)
+        if cached and time.monotonic() - cached[0] < AUTOMOD_RULE_CACHE_SECONDS:
+            return cached[1]
+        try:
+            rule = await execution.fetch_rule()
+        except discord.HTTPException:
+            log.warning("Can't read AutoMod rule %s; give the bot the Manage Server permission", execution.rule_id)
+            return False
+        slurs = bool(rule.trigger.presets and rule.trigger.presets.slurs)
+        self._automod_rules[execution.rule_id] = (time.monotonic(), slurs)
+        return slurs
+
+    async def _add_violation(
+        self, case: Case, member: discord.abc.User, label: str, reasons: list[str], severe: bool,
+        message: discord.Message | None, channel_id: int | None = None,
+    ) -> None:
+        """Fold another violation into an open case instead of opening a new report."""
+        steps = plan(label, severe, self.warning_count(case.guild_id, case.user_id), self.settings)
+        name = LABEL_NAMES.get(label, label)
+        self.store.add_warning(case.guild_id, case.user_id, reasons[0] if reasons else name, case.id)
+        channel_id = message.channel.id if message is not None else channel_id
+        where = f" in <#{channel_id}>" if channel_id else ""
+        case.actions.append(f"another {name.lower()} message{where}: warning {steps.warning_number}")
+        case.reasons += [r for r in reasons if r not in case.reasons]
+        if LABEL_RANK.get(label, 0) > LABEL_RANK.get(case.label, 0):
+            case.label = label
+
+        if steps.delete_message and message is not None:
+            try:
+                await message.delete()
+                case.actions.append("that message was deleted")
+            except discord.HTTPException as error:
+                case.actions.append(f"could not delete that message ({error.status})")
+        if steps.review_timeout and not case.timed_out and isinstance(member, discord.Member):
+            await self._review_timeout(case, member)
+            if self.settings.mod_dm_warnings:
+                await self._dm(member, case, steps.warning_number)
+
+        self.store.save(case)
+        await self._refresh_report(case)
 
     async def open_manual(self, guild: discord.Guild, member: discord.Member, moderator: discord.abc.User, reason: str) -> Case:
         case = self.store.create_case(guild.id, member.id, "manual", [reason], created_by=moderator.id, content=reason)

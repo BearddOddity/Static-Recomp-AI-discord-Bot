@@ -138,6 +138,7 @@ class FakeDiscord:
     def make_member(user_id, **permissions):
         member = MagicMock(spec=discord.Member)
         member.id = user_id
+        member.bot = False
         member.timeout = AsyncMock()
         member.send = AsyncMock()
         member.guild_permissions = discord.Permissions(**permissions)
@@ -313,3 +314,78 @@ def test_classifier_and_ask_receive_the_rules():
     messages = build_messages("Be helpful.", "where can I get the iso?", [], rules="1. No piracy")
     assert "1. No piracy" in messages[1].content
     assert parse_verdict('{"label": "rule_violation", "confidence": 1}').label == "rule_violation"
+
+
+# --- free speech and hate speech -------------------------------------------------
+
+
+def test_hate_speech_always_goes_to_review(settings):
+    hate = Verdict("hate_speech", 0.8, ("slur aimed at a member",), "ai")
+    assert is_severe(hate, settings)
+    first = plan("hate_speech", True, 0, settings)
+    assert first.review_timeout and first.warning_number == 1
+    off = dataclasses.replace(settings, mod_severe_scam_review=False)
+    assert plan("hate_speech", True, 0, off).review_timeout
+
+
+def test_classifier_prompt_protects_free_speech():
+    from bot.moderation.classifier import RULES_SECTION, SYSTEM_PROMPT
+
+    assert "FREE SPEECH" in SYSTEM_PROMPT and "NEVER flag a message for its opinions" in SYSTEM_PROMPT
+    assert "never a reason to flag" in RULES_SECTION
+    assert parse_verdict('{"label": "hate_speech", "confidence": 0.9}').label == "hate_speech"
+
+
+def test_hate_speech_from_ai_times_out_first_time(settings, store):
+    fake = FakeDiscord(settings, store)
+    case = flag(fake, Verdict("hate_speech", 0.85, ("slur aimed at a member",), "ai"))
+    assert case.status == "review" and case.timed_out
+    assert build_embed(case, 1, settings).title.startswith(f"Case #{case.id} · Hate speech")
+
+
+def test_burst_of_violations_makes_one_report(settings, store):
+    fake = FakeDiscord(settings, store)
+    first = flag(fake)
+    second = flag(fake, Verdict("scam", 0.8, ("fake giveaway",), "ai"))
+    assert second.id == first.id
+    assert fake.log_channel.send.await_count == 1  # one report, then edited
+    merged = store.get(first.id)
+    assert merged.label == "scam"  # the more serious label wins
+    assert "fake giveaway" in merged.reasons and fake.manager.warning_count(1, 2) == 2
+    assert fake.log_channel.get_partial_message.return_value.edit.await_count >= 1
+
+
+# --- Discord AutoMod -------------------------------------------------------------
+
+
+def automod_event(fake, *, rule_id=7, slurs=True, message_id=None, trigger=discord.AutoModRuleTriggerType.keyword_preset):
+    execution = MagicMock(spec=discord.AutoModAction)
+    execution.guild_id, execution.guild = 1, fake.guild
+    execution.user_id, execution.member = 2, fake.member
+    execution.rule_id, execution.rule_trigger_type = rule_id, trigger
+    execution.channel_id, execution.message_id = 3, message_id
+    execution.content, execution.matched_keyword, execution.matched_content = "bad words", "badword", None
+    rule = MagicMock()
+    rule.trigger.presets = discord.AutoModPresets(slurs=slurs)
+    execution.fetch_rule = AsyncMock(return_value=rule)
+    return execution
+
+
+def test_automod_slur_filter_opens_hate_speech_case_once(settings, store):
+    fake = FakeDiscord(settings, store)
+    case = run(fake.manager.open_from_automod(automod_event(fake)))
+    assert case.label == "hate_speech" and case.status == "review" and case.timed_out
+    assert case.message_deleted and "AutoMod blocked the message" in case.actions
+    assert "||badword||" in case.reasons[1]
+    # AutoMod sends one event per action (block + alert); the second is ignored.
+    assert run(fake.manager.open_from_automod(automod_event(fake))) is None
+    assert fake.log_channel.send.await_count == 1
+
+
+def test_automod_profanity_filter_is_free_speech(settings, store):
+    fake = FakeDiscord(settings, store)
+    assert run(fake.manager.open_from_automod(automod_event(fake, slurs=False))) is None
+    custom = automod_event(fake, rule_id=55, trigger=discord.AutoModRuleTriggerType.keyword)
+    assert run(fake.manager.open_from_automod(custom)) is None
+    fake.manager.settings = dataclasses.replace(settings, mod_hate_automod_rule_ids=frozenset({55}))
+    assert run(fake.manager.open_from_automod(custom)).label == "hate_speech"

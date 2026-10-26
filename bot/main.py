@@ -21,6 +21,20 @@ DISCORD_MESSAGE_LIMIT = 2000
 MAX_SOURCES_SHOWN = 3
 RENEW_TIMEOUTS_EVERY_SECONDS = 6 * 3600
 
+# Everything the bot needs. Used for the invite link and /status.
+REQUIRED_PERMISSIONS = discord.Permissions(
+    view_channel=True,
+    send_messages=True,
+    send_messages_in_threads=True,
+    embed_links=True,
+    attach_files=True,
+    read_message_history=True,
+    manage_messages=True,  # delete flagged messages
+    moderate_members=True,  # timeouts pending review
+    ban_members=True,  # only when a moderator presses Ban
+    manage_guild=True,  # read AutoMod rules and receive AutoMod events
+)
+
 DOCS_INSTRUCTIONS = (
     "Below are excerpts from this community's documentation on GitHub. Use them to answer "
     "when they are relevant, and prefer them over your own memory. If they do not cover the "
@@ -34,6 +48,8 @@ class AssistantBot(discord.Client):
         intents = discord.Intents.default()
         # Privileged: enable "Message Content Intent" in the Developer Portal.
         intents.message_content = True
+        # Lets the bot hear Discord AutoMod's slur filter (needs Manage Server).
+        intents.auto_moderation_execution = True
         # AI output is untrusted, so the bot never pings @everyone, roles or users.
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
 
@@ -76,6 +92,7 @@ class AssistantBot(discord.Client):
         self.tree.add_command(reload_docs)
         self.tree.add_command(warn)
         self.tree.add_command(warnings)
+        self.tree.add_command(status)
 
     async def setup_hook(self) -> None:
         if self.docs_specs:
@@ -121,6 +138,7 @@ class AssistantBot(discord.Client):
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s using AI provider %s", self.user, self.ai.name)
+        log.info("Invite link: %s", invite_url(self.application_id))
         if not self.settings.mod_log_channel_id:
             log.warning("MOD_LOG_CHANNEL_ID is not set: cases are saved but moderators get no reports or buttons")
         for guild in self.guilds:
@@ -132,6 +150,29 @@ class AssistantBot(discord.Client):
     # The rules are re-read whenever anything in the rules channel changes.
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
         await self._rules_changed(payload.guild_id, payload.channel_id)
+        # Scammers sometimes post something harmless, then edit in the scam. Only real
+        # edits count: Discord also sends "edits" when it adds link previews.
+        if not self.moderator or not payload.guild_id or not payload.data.get("edited_timestamp"):
+            return
+        before = payload.cached_message
+        if before is not None and before.content == payload.data.get("content", before.content):
+            return
+        channel = self.get_channel(payload.channel_id)
+        if channel is None or self.rules.is_rules_channel(channel.guild, channel.id):
+            return
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+        await self._moderate(message)
+
+    async def on_automod_action(self, execution: discord.AutoModAction) -> None:
+        if not self.moderator:
+            return
+        try:
+            await self.cases.open_from_automod(execution)
+        except Exception:
+            log.exception("Handling an AutoMod action failed")
 
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
         await self._rules_changed(payload.guild_id, payload.channel_id)
@@ -145,6 +186,9 @@ class AssistantBot(discord.Client):
         if self.rules.is_rules_channel(message.guild, message.channel.id):
             await self.rules.refresh(message.guild)
             return
+        await self._moderate(message)
+
+    async def _moderate(self, message: discord.Message) -> None:
         if not self.moderator or is_exempt(message, self.settings):
             return
         try:
@@ -320,6 +364,69 @@ async def warnings(interaction: discord.Interaction, member: discord.Member) -> 
             f"• #{c.id} {c.label}: {c.status if c.is_open else c.decision} (<t:{int(c.created_at)}:R>)"
             for c in cases
         ]
+    await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
+
+
+def invite_url(application_id: int | None) -> str:
+    return discord.utils.oauth_url(
+        application_id or 0, permissions=REQUIRED_PERMISSIONS, scopes=("bot", "applications.commands")
+    )
+
+
+@app_commands.command(name="status", description="Check the bot's setup and permissions in this server")
+@app_commands.default_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def status(interaction: discord.Interaction) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    settings, guild = bot.settings, interaction.guild
+    ok, bad = "✅", "⚠️"
+    lines = [f"**{bot.user.name} status**"]
+
+    lines.append(f"{ok} AI for /ask: `{bot.ai.name}`")
+    if not settings.mod_enabled:
+        lines.append(f"{bad} Moderation is off (MOD_ENABLED=false)")
+    elif bot._mod_ai is None:
+        lines.append(f"{bad} Moderation AI is off (MOD_AI_SCAN=off): rules and AutoMod only")
+    else:
+        vision = bot._mod_ai.supports_images
+        lines.append(
+            f"{ok if vision else bad} Moderation AI: `{bot._mod_ai.name}`, scan mode `{settings.mod_ai_scan}`, "
+            + ("can see images" if vision else "can't see images, so image-only scams get through")
+        )
+
+    log_channel = guild.get_channel(settings.mod_log_channel_id) if settings.mod_log_channel_id else None
+    lines.append(
+        f"{ok} Case reports go to {log_channel.mention}" if log_channel
+        else f"{bad} MOD_LOG_CHANNEL_ID is missing or not visible: moderators get no case reports"
+    )
+    rules_channel = bot.rules.channel_for(guild)
+    rules_text = bot.rules.get(guild.id)
+    lines.append(
+        f"{ok} Rules: {len(rules_text)} characters read from {rules_channel.mention}" if rules_channel and rules_text
+        else f"{bad} No rules loaded (set RULES_CHANNEL_ID or name a channel #rules)"
+    )
+    lines.append(
+        f"{ok} Docs: {len(bot.docs)} sections from {len(bot.docs_specs)} sources" if len(bot.docs)
+        else f"{bad} No docs loaded yet (DOCS_REPOS, or wait a minute after startup)"
+    )
+    lines.append(f"{ok} Warnings: timeout pending review at {settings.mod_warn_limit}; {bot.store.count_in_review(guild.id)} case(s) waiting for review")
+
+    try:
+        rules = await guild.fetch_automod_rules()
+        slurs = any(r.enabled and r.trigger.presets and r.trigger.presets.slurs for r in rules)
+        lines.append(
+            f"{ok} AutoMod slur filter is on: hate speech gets a timeout and a case" if slurs
+            else f"{bad} AutoMod slur filter is off: Server Settings → AutoMod → turn on \"Block words: Slurs\""
+        )
+    except discord.HTTPException:
+        lines.append(f"{bad} Can't read AutoMod rules (the bot needs Manage Server)")
+
+    missing = [name.replace("_", " ").title() for name, needed in REQUIRED_PERMISSIONS if needed
+               and not getattr(guild.me.guild_permissions, name)]
+    lines.append(f"{bad} Missing permissions: {', '.join(missing)}" if missing else f"{ok} All permissions granted")
+    if guild.me.top_role.position <= 1:
+        lines.append(f"{bad} Move the bot's role higher in Server Settings → Roles, above members it should moderate")
+
     await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
 
 

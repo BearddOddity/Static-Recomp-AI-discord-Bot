@@ -49,6 +49,8 @@ class Settings:
     mod_action: str  # "flag" or "delete", for scams
     mod_piracy_action: str  # "flag" or "delete"
     mod_rule_action: str  # "flag" or "delete", for #rules violations
+    mod_hate_action: str  # "flag" or "delete", for hate speech
+    mod_hate_automod_rule_ids: frozenset[int]
     mod_warn_limit: int
     mod_warn_expiry_days: float
     mod_severe_confidence: float
@@ -150,6 +152,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         mod_action=_choice("MOD_ACTION", "flag", ("flag", "delete")),
         mod_piracy_action=_choice("MOD_PIRACY_ACTION", "flag", ("flag", "delete")),
         mod_rule_action=_choice("MOD_RULE_ACTION", "flag", ("flag", "delete")),
+        mod_hate_action=_choice("MOD_HATE_ACTION", "flag", ("flag", "delete")),
+        mod_hate_automod_rule_ids=frozenset(int(r) for r in _set("MOD_HATE_AUTOMOD_RULE_IDS")),
         mod_warn_limit=max(1, int(os.getenv("MOD_WARN_LIMIT", "3"))),
         mod_warn_expiry_days=float(os.getenv("MOD_WARN_EXPIRY_DAYS", "90")),
         mod_severe_confidence=float(os.getenv("MOD_SEVERE_CONFIDENCE", "0.9")),

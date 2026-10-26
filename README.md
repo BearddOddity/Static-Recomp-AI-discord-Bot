@@ -2,6 +2,8 @@
 
 A Discord assistant for the static recompiled games community. It answers questions from the projects' GitHub docs and moderates scam and piracy posts, including scams made only of screenshots.
 
+**New here? Follow [SETUP.md](SETUP.md)**: a step-by-step guide from creating the bot to running it, no programming needed.
+
 > AI coding assistants: read [AGENTS.md](AGENTS.md) before changing anything.
 
 It connects to Discord, answers `/ask` questions using your community's GitHub docs, and lets you choose the AI backend.
@@ -48,7 +50,11 @@ At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, 
 
 ## Moderation
 
-The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams, piracy and breaking your server's rules. It works in two layers:
+The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams, piracy, hate speech and breaking your server's rules. Edited messages are checked again.
+
+**Free speech:** opinions, criticism, rudeness, profanity, dark humour and heated arguments are never flagged, even if your rules channel asks for civility. The only speech that gets moderated is **hate speech** (attacks on people for their race, religion, sexuality, gender identity, disability and similar, or threats of violence). Hate speech always times the member out until a moderator reviews the case. It's caught two ways: Discord's built-in **AutoMod Slurs filter** (free and instant, turn it on as described in [SETUP.md](SETUP.md)), and the AI when it reviews a message.
+
+Detection works in two layers:
 
 1. **Built-in rules (free and instant).** These look for:
    - known scam domains, such as the fake MrBeast casino `kegwin.com`
@@ -62,10 +68,12 @@ The bot checks every message from members (anyone with **Manage Messages** is sk
 The bot warns first and never bans by itself:
 
 1. **Warning.** Each violation opens a **case** and gives the member a warning, which they get by DM (warning 1 of 3, and so on).
-2. **Timeout until reviewed.** At `MOD_WARN_LIMIT` active warnings (3 by default), the member is timed out until a moderator looks at the case. A near-certain scam (a known scam site, or the AI at least 90% sure) goes straight here on the first offence, because those usually come from hacked accounts. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides.
+2. **Timeout until reviewed.** At `MOD_WARN_LIMIT` active warnings (3 by default), the member is timed out until a moderator looks at the case. **Hate speech** and near-certain scams (a known scam site, or the AI at least 90% sure) go straight here on the first offence. Scams like that usually come from hacked accounts. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides.
 3. **Ban.** Only a moderator can ban, using the button on the case report, and the bot asks them to confirm first.
 
-Warnings expire after `MOD_WARN_EXPIRY_DAYS` (90 by default). Moderators can also use `/warn @member reason` (it counts toward the same limit) and `/warnings @member` to see someone's record.
+Warnings expire after `MOD_WARN_EXPIRY_DAYS` (90 by default). Moderators can also use `/warn @member reason` (it counts toward the same limit) and `/warnings @member` to see someone's record. Admins can run `/status` to check the bot's setup.
+
+If a member breaks several rules in a short time, for example a hacked account cross-posting a scam to five channels, everything goes into **one case**. That case escalates, and moderators don't get flooded with reports.
 
 ### Case reports
 
@@ -94,7 +102,7 @@ In the default `MOD_AI_SCAN=suspicious` mode, the AI only sees posts that alread
 
 **Image scams need a model that can see images.** Claude models can. On OpenRouter, pick a model whose input includes images, and set it as `MOD_AI_MODEL` if your `/ask` model is text-only. Without one, the bot judges only the text and links, and image-only scams get through.
 
-**Bot permissions needed:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History (including in the rules channel), **Manage Messages**, **Moderate Members** and **Ban Members**. The bot's role must be above the roles of the members it moderates, or Discord will refuse its timeouts and bans.
+**Bot permissions needed:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History (including in the rules channel), **Manage Messages**, **Moderate Members**, **Ban Members** and **Manage Server** (to see AutoMod). The invite link in [SETUP.md](SETUP.md) grants exactly these. The bot's role must be above the roles of the members it moderates, or Discord will refuse its timeouts and bans.
 
 **Test without Discord:**
 
@@ -157,7 +165,7 @@ The provider tests use mocked HTTP responses, so they need no API keys.
 
 ```
 bot/
-  main.py            Discord client, /ask, /reload-docs, /warn, /warnings, events
+  main.py            Discord client, /ask, /reload-docs, /warn, /warnings, /status, events
   config.py          Reads settings from the environment
   docs/
     github.py        Downloads doc files from GitHub repos and wikis
@@ -173,6 +181,8 @@ bot/
     __init__.py      build_provider() picks one from AI_PROVIDER
 tests/
 examples/scam/       Real scam screenshots for tests and manual checks
+start.sh, start.bat  One-click start (sets up Python on first run)
+Dockerfile, docker-compose.yml
 ```
 
 Adding a backend means writing one class with `async complete(messages) -> str` and a branch in `bot/ai/__init__.py`.

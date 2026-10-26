@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS cases (
     user_id INTEGER NOT NULL,
     channel_id INTEGER,
     message_id INTEGER,
-    label TEXT NOT NULL,             -- scam, piracy, rule_violation, manual
+    label TEXT NOT NULL,             -- scam, piracy, hate_speech, rule_violation, manual
     confidence REAL NOT NULL DEFAULT 0,
     reasons TEXT NOT NULL DEFAULT '[]',
     content TEXT NOT NULL DEFAULT '',
@@ -135,16 +135,32 @@ class CaseStore:
 
     def save(self, case: Case) -> None:
         self._db.execute(
-            "UPDATE cases SET status = ?, actions = ?, timed_out = ?, message_deleted = ?, decision = ?,"
-            " decided_by = ?, decided_at = ?, log_channel_id = ?, log_message_id = ? WHERE id = ?",
-            (case.status, json.dumps(case.actions), int(case.timed_out), int(case.message_deleted),
-             case.decision, case.decided_by, case.decided_at, case.log_channel_id, case.log_message_id, case.id),
+            "UPDATE cases SET label = ?, reasons = ?, status = ?, actions = ?, timed_out = ?, message_deleted = ?,"
+            " decision = ?, decided_by = ?, decided_at = ?, log_channel_id = ?, log_message_id = ? WHERE id = ?",
+            (case.label, json.dumps(case.reasons), case.status, json.dumps(case.actions), int(case.timed_out),
+             int(case.message_deleted), case.decision, case.decided_by, case.decided_at,
+             case.log_channel_id, case.log_message_id, case.id),
         )
         self._db.commit()
 
     def cases_in_review(self) -> list[Case]:
         rows = self._db.execute("SELECT * FROM cases WHERE status = 'review' AND timed_out = 1").fetchall()
         return [_case(r) for r in rows]
+
+    def recent_open_case(self, guild_id: int, user_id: int, within_seconds: float) -> Case | None:
+        """The member's case to add a new violation to: any case still waiting for
+        review, or a warning case opened in the last within_seconds."""
+        row = self._db.execute(
+            "SELECT * FROM cases WHERE guild_id = ? AND user_id = ?"
+            " AND (status = 'review' OR (status = 'warned' AND created_at >= ?)) ORDER BY id DESC LIMIT 1",
+            (guild_id, user_id, time.time() - within_seconds),
+        ).fetchone()
+        return _case(row) if row else None
+
+    def count_in_review(self, guild_id: int) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) FROM cases WHERE guild_id = ? AND status = 'review'", (guild_id,)
+        ).fetchone()[0]
 
     def cases_for_user(self, guild_id: int, user_id: int, limit: int = 10) -> list[Case]:
         rows = self._db.execute(

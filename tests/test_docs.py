@@ -39,8 +39,8 @@ def test_reply_includes_sources_and_fits_discord_limit():
     assert reply.endswith("<https://github.com/org/repo/blob/main/README.md>")
 
     messages = build_messages("Be helpful.", "setup?", [chunk])
-    assert [m.role for m in messages] == ["system", "system", "user"]
-    assert "Install it." in messages[1].content
+    assert [m.role for m in messages][-1] == "user"
+    assert any("Install it." in m.content for m in messages if m.role == "system")
     assert format_reply("hi", []) == "hi"
 
 

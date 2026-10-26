@@ -312,7 +312,7 @@ def test_classifier_and_ask_receive_the_rules():
     assert "3. No self-promotion" in Capture.sent[0].content
 
     messages = build_messages("Be helpful.", "where can I get the iso?", [], rules="1. No piracy")
-    assert "1. No piracy" in messages[1].content
+    assert any("1. No piracy" in m.content for m in messages if m.role == "system")
     assert parse_verdict('{"label": "rule_violation", "confidence": 1}').label == "rule_violation"
 
 
@@ -389,3 +389,25 @@ def test_automod_profanity_filter_is_free_speech(settings, store):
     assert run(fake.manager.open_from_automod(custom)) is None
     fake.manager.settings = dataclasses.replace(settings, mod_hate_automod_rule_ids=frozenset({55}))
     assert run(fake.manager.open_from_automod(custom)).label == "hate_speech"
+
+
+def test_certain_piracy_is_deleted_but_follows_the_ladder(settings, store):
+    certain = Verdict("piracy", 1.0, ("shared a game file: halo.iso (disc image)",), "rules", score=100)
+    assert is_severe(certain, settings)
+    first = plan("piracy", True, 0, settings)
+    assert first.delete_message and not first.review_timeout  # MOD_PIRACY_ACTION is still "flag"
+    assert plan("piracy", True, 2, settings).review_timeout   # third warning
+    guess = Verdict("piracy", 0.8, ("asks for an iso",), "ai", score=20)
+    assert not is_severe(guess, settings)
+    assert not plan("piracy", False, 0, settings).delete_message
+
+    fake = FakeDiscord(settings, store)
+    message = fake.message("here")
+    case = run(fake.manager.open_from_message(message, Post("here", 2, 3), certain))
+    message.delete.assert_awaited_once()
+    assert case.status == "warned" and case.message_deleted
+
+
+def test_ask_always_carries_the_anti_piracy_policy():
+    messages = build_messages("Be helpful.", "where do I get halo 3 iso", [])
+    assert any("anti-piracy" in m.content for m in messages if m.role == "system")

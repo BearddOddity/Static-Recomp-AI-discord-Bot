@@ -8,6 +8,7 @@ import discord
 from ..ai import Image
 from ..config import Settings
 from .engine import Post
+from .files import MAX_ZIP_BYTES, zip_member_names
 
 log = logging.getLogger("bot.moderation")
 
@@ -27,14 +28,18 @@ def is_exempt(message: discord.Message, settings: Settings) -> bool:
 
 
 async def to_post(message: discord.Message, rules: str = "") -> Post:
-    images = []
+    images, names = [], []
     for attachment in message.attachments:
+        names.append(attachment.filename)
         media_type = (attachment.content_type or "").split(";")[0]
-        if media_type in IMAGE_TYPES and attachment.size <= MAX_IMAGE_BYTES and len(images) < MAX_IMAGES:
-            try:
+        try:
+            if media_type in IMAGE_TYPES and attachment.size <= MAX_IMAGE_BYTES and len(images) < MAX_IMAGES:
                 images.append(Image(await attachment.read(), media_type))
-            except discord.HTTPException:
-                log.warning("Could not download attachment %s", attachment.id)
+            elif attachment.filename.lower().endswith(".zip") and attachment.size <= MAX_ZIP_BYTES:
+                # Look inside, so game files can't hide in an archive.
+                names += zip_member_names(attachment.filename, await attachment.read())
+        except discord.HTTPException:
+            log.warning("Could not download attachment %s", attachment.id)
 
     now = datetime.now(timezone.utc)
     author = message.author
@@ -45,6 +50,7 @@ async def to_post(message: discord.Message, rules: str = "") -> Post:
         channel_id=message.channel.id,
         images=images,
         attachment_count=len(message.attachments),
+        attachment_names=names,
         account_age_days=(now - author.created_at).total_seconds() / 86400,
         member_age_hours=(now - joined).total_seconds() / 3600 if joined else None,
         rules=rules,

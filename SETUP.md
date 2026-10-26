@@ -120,7 +120,7 @@ MOD_ACTION=delete          # remove scam messages immediately
 MOD_HATE_ACTION=delete     # remove hate speech immediately
 ```
 
-Bans always stay a moderator's decision.
+Bans always stay a moderator's decision. Shared game files and piracy links are deleted from day one: that's certain, so it doesn't wait for this step.
 
 ---
 

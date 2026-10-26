@@ -221,3 +221,68 @@ def test_openai_compatible_sends_data_url_images():
 def test_ollama_sends_images_field():
     msg = _capture(OllamaProvider, "http://localhost:11434", "llava", reply={"message": {"content": "{}"}})
     assert msg["images"] == ["iVBORw=="]
+
+
+# --- anti-piracy -------------------------------------------------------------------
+
+from bot.moderation.files import check_attachments, check_urls, zip_member_names  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Halo 3.iso", "default.xex", "game.XBE", "boot.elf", "EBOOT.BIN", "mario.z64", "zelda.nsp",
+     "disc.chd", "game.rvz", "license.rap", "game.pkg"],
+)
+def test_game_file_attachments_are_certain_piracy(name):
+    verdict = run(moderator(FakeAI()).review(Post("here you go", 1, 1, attachment_count=1, attachment_names=[name])))
+    assert verdict.label == "piracy" and verdict.source == "rules"
+    assert any(name in r for r in verdict.reasons)
+
+
+@pytest.mark.parametrize("name", ["crash.log", "build.zip", "notes.md", "screenshot.png", "app.exe", "patch.toml"])
+def test_normal_attachments_are_fine(name):
+    assert check_attachments([name]) == []
+
+
+def test_bin_counts_only_next_to_a_cue():
+    assert check_attachments(["track01.bin"])[0].weight < 100
+    assert {s.weight for s in check_attachments(["game.cue", "track01.bin"])} == {100}
+
+
+def test_game_files_inside_a_zip_are_found(tmp_path):
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("readme.txt", "hi")
+        archive.writestr("Game/default.xex", b"XEX2")
+    names = ["totally-legit.zip"] + zip_member_names("totally-legit.zip", buffer.getvalue())
+    assert names[-1] == "totally-legit.zip/Game/default.xex"
+    assert check_attachments(names)[0].reason.startswith("shared a game file: default.xex")
+    assert zip_member_names("broken.zip", b"not a zip") == []
+
+
+def test_piracy_links():
+    checker = LinkChecker(extra_piracy={"warez.example"})
+    assert checker.check(["https://vimm.net/vault/1234"])[0].category == "piracy"
+    assert checker.check(["https://warez.example/x"])[0].reason == "link to a piracy site (warez.example)"
+    hosted = check_urls(["https://mega.example/file/abc/Gears%20of%20War.iso"])
+    assert hosted[0].reason == "link to a game file: Gears of War.iso (disc image)"
+    # GitHub releases of recomp tools are trusted, even for .elf or .pkg builds.
+    assert check_urls(["https://github.com/org/tool/releases/download/v1/tool.pkg"], checker.is_allowed_url) == []
+
+
+def test_talking_about_game_files_is_not_piracy():
+    for text in ["my default.xex crashes in the recompiler at 0x82000000",
+                 "how do I dump my own Xbox 360 disc to an ISO?",
+                 "the .elf loader in ps3recomp handles relocations"]:
+        verdict = run(moderator(None).review(Post(text, 1, 1)))
+        assert not verdict.flagged, text
+
+
+def test_mixed_signals_pick_the_bigger_category():
+    text = "free nitro https://dlscord-gift.com"
+    verdict = run(moderator(None).review(Post(text, 1, 1, attachment_count=1, attachment_names=["game.iso"])))
+    assert verdict.label == "piracy"  # 100 piracy vs 100 scam: tie goes to piracy
+    assert any("dlscord" in r for r in verdict.reasons)

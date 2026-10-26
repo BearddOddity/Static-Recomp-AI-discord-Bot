@@ -54,6 +54,14 @@ The bot checks every message from members (anyone with **Manage Messages** is sk
 
 **Free speech:** opinions, criticism, rudeness, profanity, dark humour and heated arguments are never flagged, even if your rules channel asks for civility. The only speech that gets moderated is **hate speech** (attacks on people for their race, religion, sexuality, gender identity, disability and similar, or threats of violence). Hate speech always times the member out until a moderator reviews the case. It's caught two ways: Discord's built-in **AutoMod Slurs filter** (free and instant, turn it on as described in [SETUP.md](SETUP.md)), and the AI when it reviews a message.
 
+**Anti-piracy policy:** no links to pirated content, and no sharing game files of any kind. That covers console executables (`.elf`, `.xbe`, `.xex`, `.self`, `EBOOT.BIN`), disc images (`.iso`, `.bin`+`.cue`, `.chd`, `.cso`, `.rvz`, `.wbfs` and more), ROMs, console packages (`.pkg`, `.nsp`, `.xci`) and license keys. These are recognised by the rules, with no AI guesswork:
+
+- **game files attached** to a message, including ones hidden inside a `.zip`
+- **links to piracy sites** (list in `bot/moderation/data/piracy_domains.txt`, plus `MOD_PIRACY_DOMAINS`)
+- **direct links to game files** on file hosts or the Discord CDN (`…/Halo3.iso`); trusted sites such as GitHub releases are skipped
+
+Those messages are **always deleted**, and the member gets a warning on the normal ladder. Piracy is often a newcomer who didn't know, so it's 3 warnings before a timeout pending review, and bans stay with moderators. Things the AI only suspects, such as someone asking where to find an ISO, follow `MOD_PIRACY_ACTION` (flag by default). Talking about files is fine: "my default.xex crashes in the recompiler" or "how do I dump my own disc?" are never flagged. `/ask` refuses to help find game files and points people to dumping their own.
+
 Detection works in two layers:
 
 1. **Built-in rules (free and instant).** These look for:
@@ -112,7 +120,7 @@ python -m bot.moderation.check --text "free nitro at dlscord-gift.com"
 python -m bot.moderation.check --rules-only --text "..."       # no AI key needed
 ```
 
-To block a new scam site for everyone, add it to `bot/moderation/data/blocked_domains.txt`. For just your server, add it to `MOD_BLOCKED_DOMAINS`.
+To block a new scam site for everyone, add it to `bot/moderation/data/blocked_domains.txt`. For just your server, add it to `MOD_BLOCKED_DOMAINS`. Piracy sites work the same way with `piracy_domains.txt` and `MOD_PIRACY_DOMAINS`.
 
 ## Choosing an AI backend
 

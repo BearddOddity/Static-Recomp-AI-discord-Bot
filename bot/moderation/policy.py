@@ -38,9 +38,12 @@ class Plan:
 
 
 def is_severe(verdict: Verdict, settings: Settings) -> bool:
-    """Hate speech, and near-certain scams (usually hacked accounts), skip straight to review."""
+    """Hate speech, near-certain scams (usually hacked accounts), and certain piracy
+    (a game file or piracy-site link the rules recognised, no AI guess involved)."""
     if verdict.label == "hate_speech":
         return True
+    if verdict.label == "piracy":
+        return verdict.score >= HARD_SCORE
     if verdict.label != "scam":
         return False
     return verdict.score >= HARD_SCORE or verdict.confidence >= settings.mod_severe_confidence
@@ -53,11 +56,15 @@ def plan(label: str, severe: bool, active_warnings: int, settings: Settings) -> 
         "hate_speech": settings.mod_hate_action,
         "rule_violation": settings.mod_rule_action,
     }.get(label) == "delete"
+    # Shared game files and piracy links always come down: leaving them up is distribution.
+    if label == "piracy" and severe:
+        delete = True
     number = active_warnings + 1
     # Hate speech always waits for a human; severe scams do unless turned off.
+    # Piracy follows the normal warning ladder: it's often a newcomer who didn't know.
     review = (
         label == "hate_speech"
-        or (severe and settings.mod_severe_scam_review)
+        or (severe and label == "scam" and settings.mod_severe_scam_review)
         or number >= settings.mod_warn_limit
     )
     return Plan(delete_message=delete, review_timeout=review, warning_number=number)

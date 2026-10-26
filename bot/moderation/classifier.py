@@ -33,10 +33,15 @@ A screenshot series like: a celebrity's verified post promoting a site and promo
 the site's bonus page, a withdrawal-success popup, and a phone wallet showing the money \
 received, is a textbook scam even with no text in the message.
 
-PIRACY includes sharing, requesting or linking to copyrighted game files (ROMs, ISOs, \
-XEX, PKG, decrypted dumps, "game files", firmware keys) or sites that host them. These \
-projects require users to dump games they own. Explaining HOW to dump your own disc or \
-console, or discussing file formats, is fine.
+PIRACY (the server has a strict anti-piracy policy): sharing, offering, requesting or \
+linking to game files of any kind, or to sites or posts that host them. Game files \
+include console executables (.elf, .xbe, .xex, .self, EBOOT.BIN), disc images (.iso, \
+.bin/.cue, .chd, .cso, .rvz, .wbfs and others), ROMs, console packages (.pkg, .nsp, \
+.xci), decrypted dumps, firmware, BIOS files and license keys. Screenshots of download \
+pages or file-host links for games count too. These projects require people to dump \
+games they own themselves. NOT piracy: explaining how to dump your own disc or console, \
+naming files while debugging (e.g. "my default.xex crashes in the recompiler"), file \
+format discussion, and links to the projects' own source code and releases.
 
 HATE_SPEECH means attacking or dehumanising people because of a protected \
 characteristic (race, ethnicity, national origin, religion, sexual orientation, gender \

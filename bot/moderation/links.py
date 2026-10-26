@@ -41,6 +41,7 @@ def _load_list(name: str) -> frozenset[str]:
 
 DEFAULT_BLOCKED = _load_list("blocked_domains.txt")
 DEFAULT_ALLOWED = _load_list("allowed_domains.txt")
+DEFAULT_PIRACY = _load_list("piracy_domains.txt")
 
 
 def extract_urls(text: str) -> list[str]:
@@ -76,9 +77,15 @@ def _distance(a: str, b: str) -> int:
 
 
 class LinkChecker:
-    def __init__(self, extra_blocked: set[str] = frozenset(), extra_allowed: set[str] = frozenset()):
+    def __init__(
+        self,
+        extra_blocked: set[str] = frozenset(),
+        extra_allowed: set[str] = frozenset(),
+        extra_piracy: set[str] = frozenset(),
+    ):
         self.blocked = DEFAULT_BLOCKED | {d.lower() for d in extra_blocked}
         self.allowed = DEFAULT_ALLOWED | {d.lower() for d in extra_allowed}
+        self.piracy = DEFAULT_PIRACY | {d.lower() for d in extra_piracy}
 
     def is_allowed(self, domain: str) -> bool:
         return _matches(domain, self.allowed)
@@ -98,6 +105,8 @@ class LinkChecker:
     def _check_domain(self, domain: str, url: str) -> list[Signal]:
         if _matches(domain, self.blocked):
             return [Signal(f"known scam domain {domain}", 100)]
+        if _matches(domain, self.piracy):
+            return [Signal(f"link to a piracy site ({domain})", 100, "piracy")]
 
         lowered = url.lower()
         if domain in ("discord.gg", "discord.com", "discordapp.com") and (

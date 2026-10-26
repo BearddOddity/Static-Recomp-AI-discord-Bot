@@ -1,0 +1,27 @@
+# Sites that host pirated games, ROMs, disc images or console license keys.
+# Links to them are always treated as piracy. One per line; subdomains match too.
+# Add more with MOD_PIRACY_DOMAINS, or here with a pull request.
+vimm.net
+cdromance.com
+cdromance.org
+coolrom.com
+emuparadise.me
+wowroms.com
+romsfun.com
+romspedia.com
+romsgames.net
+romhustler.org
+romulation.org
+edgeemu.net
+theromdepot.com
+consoleroms.com
+retrostic.com
+hexrom.com
+romspure.cc
+nopaystation.com
+psndl.net
+dlpsgame.com
+nxbrew.com
+nxbrew.net
+myrient.erista.me
+fitgirl-repacks.site

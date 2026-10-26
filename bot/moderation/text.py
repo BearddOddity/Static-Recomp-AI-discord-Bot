@@ -15,7 +15,7 @@ GIVEAWAY = re.compile(
 CELEBRITY = re.compile(r"\b(mr\.?\s?beast|elon|musk|kai cenat|ishowspeed|ronaldo|trump)\b", _I)
 MONEY_AMOUNT = re.compile(r"(\$\s?\d[\d,.]*\s?k?|\d[\d,.]*\s?(usdt|usd|\$))", _I)
 
-# Each pattern is (regex, reason, weight).
+# Each pattern is (regex, reason, weight), plus a category for the piracy ones.
 TEXT_PATTERNS = [
     (re.compile(r"\b(promo|bonus|special|referral)\s*code\b|\buse (the )?code\b", _I),
      "asks people to enter a promo or bonus code", 15),
@@ -43,9 +43,9 @@ _SHARING = r"(download|dl link|link|mega|mediafire|torrent|gdrive|google drive|s
 PIRACY_PATTERNS = [
     (re.compile(
         rf"\b{_FILES}\b.{{0,50}}\b{_SHARING}\b|\b{_SHARING}\b.{{0,50}}\b{_FILES}\b", _I | re.S),
-     "mentions downloading or sharing game files", 20),
+     "mentions downloading or sharing game files", 20, "piracy"),
     (re.compile(r"\b(where|how)\b.{0,30}\b(download|get|find)\b.{0,30}\b(rom|roms|iso|isos)\b", _I | re.S),
-     "asks where to download ROMs or ISOs", 20),
+     "asks where to download ROMs or ISOs", 20, "piracy"),
 ]
 
 
@@ -58,7 +58,7 @@ def check_text(text: str) -> list[Signal]:
         signals.append(Signal("crypto giveaway, casino or bonus promotion", 35))
     if CELEBRITY.search(text) and (has_crypto or GIVEAWAY.search(text) or MONEY_AMOUNT.search(text)):
         signals.append(Signal("celebrity name used to promote money or crypto", 25))
-    for pattern, reason, weight in TEXT_PATTERNS + PIRACY_PATTERNS:
+    for pattern, reason, weight, *category in TEXT_PATTERNS + PIRACY_PATTERNS:
         if pattern.search(text):
-            signals.append(Signal(reason, weight))
+            signals.append(Signal(reason, weight, *category))
     return signals

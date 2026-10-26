@@ -35,6 +35,13 @@ REQUIRED_PERMISSIONS = discord.Permissions(
     manage_guild=True,  # read AutoMod rules and receive AutoMod events
 )
 
+ANTI_PIRACY = (
+    "This server has a strict anti-piracy policy. Never share, link to, name sources for or "
+    "help find game files: ROMs, disc images (ISO, BIN/CUE, CHD...), console executables "
+    "(XEX, XBE, ELF, EBOOT.BIN), packages, firmware, BIOS files or keys. If asked, say the "
+    "recompilation projects require dumping games you own, and offer help with that instead."
+)
+
 DOCS_INSTRUCTIONS = (
     "Below are excerpts from this community's documentation on GitHub. Use them to answer "
     "when they are relevant, and prefer them over your own memory. If they do not cover the "
@@ -80,7 +87,7 @@ class AssistantBot(discord.Client):
                 if not self._mod_ai.supports_images:
                     log.warning("AI provider %s can't see images; image scams are judged by text only", self._mod_ai.name)
             self.moderator = Moderator(
-                LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains),
+                LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains, settings.mod_piracy_domains),
                 Classifier(self._mod_ai) if self._mod_ai else None,
                 ai_scan=settings.mod_ai_scan,
                 min_confidence=settings.mod_min_confidence,
@@ -226,7 +233,7 @@ class AssistantBot(discord.Client):
 def build_messages(
     system_prompt: str, question: str, excerpts: list[Chunk], topic_repos: list[str] = (), rules: str = ""
 ) -> list[Message]:
-    messages = [Message("system", system_prompt)]
+    messages = [Message("system", system_prompt), Message("system", ANTI_PIRACY)]
     if rules.strip():
         messages.append(
             Message(

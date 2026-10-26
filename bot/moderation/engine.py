@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 
 from ..ai import Image
 from .classifier import AIVerdict, Classifier
+from .files import check_attachments, check_urls
 from .links import LinkChecker, extract_urls
-from .signals import Signal, total
+from .signals import Signal, leading_category, total
 from .text import check_text
 
 # Score at or above which rules alone decide "scam" (e.g. a blocklisted domain).
@@ -30,6 +31,8 @@ class Post:
     channel_id: int
     images: list[Image] = field(default_factory=list)
     attachment_count: int = 0
+    # File names of all attachments, plus "archive.zip/inner/file" for zip contents.
+    attachment_names: list[str] = field(default_factory=list)
     account_age_days: float | None = None
     member_age_hours: float | None = None
     rules: str = ""  # the server's #rules text, if known
@@ -71,7 +74,12 @@ class Moderator:
 
     async def review(self, post: Post) -> Verdict:
         urls = extract_urls(post.text)
-        signals = self.links.check(urls) + check_text(post.text)
+        signals = (
+            self.links.check(urls)
+            + check_urls(urls, self.links.is_allowed_url)
+            + check_attachments(post.attachment_names)
+            + check_text(post.text)
+        )
 
         has_media = bool(urls or post.attachment_count)
         if has_media:
@@ -82,13 +90,14 @@ class Moderator:
 
         score = total(signals)
         rule_reasons = tuple(s.reason for s in signals)
+        rule_label = leading_category(signals)
 
         if score >= HARD_SCORE:
-            return Verdict("scam", min(1.0, score / 100), rule_reasons, "rules", score, tuple(urls))
+            return Verdict(rule_label, min(1.0, score / 100), rule_reasons, "rules", score, tuple(urls))
 
         if not self.classifier or not self._should_ask_ai(post, urls, score):
             if score >= SOFT_SCORE and not self.classifier:
-                return Verdict("scam", score / 100, rule_reasons, "rules", score, tuple(urls))
+                return Verdict(rule_label, score / 100, rule_reasons, "rules", score, tuple(urls))
             return OK
 
         # Rules are part of the key: a verdict made under old rules may no longer hold.
@@ -104,7 +113,7 @@ class Moderator:
         if ai is None:
             # AI failed: fall back to the rules on their own.
             if score >= SOFT_SCORE:
-                return Verdict("scam", score / 100, rule_reasons, "rules", score, tuple(urls))
+                return Verdict(rule_label, score / 100, rule_reasons, "rules", score, tuple(urls))
             return OK
         if ai.label != "ok" and ai.confidence >= self.min_confidence:
             return Verdict(ai.label, ai.confidence, ai.reasons + rule_reasons, source, score, tuple(urls))
@@ -155,6 +164,7 @@ class Moderator:
         for image in post.images:
             digest.update(hashlib.sha256(image.data).digest())
         digest.update(str(post.attachment_count).encode())
+        digest.update("|".join(post.attachment_names).encode())
         return digest.hexdigest()
 
     def _remember(self, key: str, verdict: AIVerdict) -> None:

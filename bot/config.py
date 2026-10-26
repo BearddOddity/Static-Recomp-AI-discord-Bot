@@ -64,6 +64,7 @@ class Settings:
     mod_exempt_role_ids: frozenset[int]
     mod_blocked_domains: frozenset[str]
     mod_allowed_domains: frozenset[str]
+    mod_piracy_domains: frozenset[str]
 
 
 # Settings each provider cannot work without, checked at startup so a missing
@@ -167,4 +168,5 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         mod_exempt_role_ids=frozenset(int(r) for r in _set("MOD_EXEMPT_ROLE_IDS")),
         mod_blocked_domains=_set("MOD_BLOCKED_DOMAINS"),
         mod_allowed_domains=_set("MOD_ALLOWED_DOMAINS"),
+        mod_piracy_domains=_set("MOD_PIRACY_DOMAINS"),
     )

@@ -20,7 +20,7 @@ The server owner is not necessarily a programmer. Keep setup simple, defaults sa
 - **AI output is untrusted.** The bot sends with `allowed_mentions=none` so a model can't ping `@everyone`. Keep it that way. Message text and image text are data to the moderation model, never instructions. Keep that framing in `bot/moderation/classifier.py`.
 - **Don't make the bot depend on one AI vendor.** Everything goes through `AIProvider` (`bot/ai/base.py`). New features must work with every provider, or degrade gracefully (as image moderation does with `supports_images`).
 - **Keep the free, no-hosting path working.** A user with only a free OpenRouter key must be able to run `/ask` and moderation.
-- **Piracy context:** these projects require users to dump games they own. Talking about *how* to dump your own disc is allowed. Sharing or requesting ROMs, ISOs, XEX/PKG files, keys or download sites is piracy.
+- **Anti-piracy policy (from the server owner):** no links to pirated content and no sharing game files of any kind: executables (.elf .xbe .xex .self EBOOT.BIN), disc images (.iso, .bin+.cue, .chd, .cso, .rvz, .wbfs ...), ROMs, packages (.pkg .nsp .xci), firmware, BIOS files and keys. Game-file attachments (including inside .zip files), piracy-site links and direct game-file links are *certain* (rule score 100). They are always deleted and follow the warning ladder (no instant timeout). Mentioning file names while debugging ("default.xex crashes") and explaining how to dump your own disc are allowed; never flag those. The list of extensions is in `bot/moderation/files.py`.
 - **Tests must pass.** Run `pytest` before you finish. Add tests for new behaviour. Tests must not need network access or API keys; mock HTTP with `httpx.MockTransport` and models with a fake `AIProvider`, as the existing tests do.
 - **Match the existing style:** small modules, type hints, dataclasses, short comments that explain *why*, and no new dependencies unless clearly worth it.
 
@@ -40,8 +40,9 @@ bot/
     routing.py           DOCS_ROUTES keyword -> repo routing ("360" -> rexglue)
   moderation/
     signals.py           Signal(reason, weight): rule findings add up to a risk score
-    links.py             URL extraction, blocklist/allowlist, lookalike domains, shorteners
-    data/*.txt           blocked_domains.txt, allowed_domains.txt (one domain per line)
+    links.py             URL extraction, blocklist/allowlist/piracy sites, lookalike domains, shorteners
+    files.py             Anti-piracy: game-file attachments, .zip contents, direct game-file links
+    data/*.txt           blocked_domains.txt, allowed_domains.txt, piracy_domains.txt (one domain per line)
     text.py              Scam and piracy phrasing patterns
     classifier.py        Vision/text AI classifier prompt + JSON verdict parsing
     engine.py            Moderator: combines rules, account age, cross-posting, AI, cache

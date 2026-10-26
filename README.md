@@ -1,6 +1,8 @@
 # Static Recomp AI Discord Bot
 
-A Discord assistant for the static recompiled games community. It answers questions with an AI model and is being built to moderate piracy and scam posts.
+A Discord assistant for the static recompiled games community. It answers questions from the projects' GitHub docs and moderates scam and piracy posts, including scams made only of screenshots.
+
+> AI coding assistants: read [AGENTS.md](AGENTS.md) before changing anything.
 
 It connects to Discord, answers `/ask` questions using your community's GitHub docs, and lets you choose the AI backend.
 
@@ -43,6 +45,33 @@ At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, 
 - Without `GITHUB_TOKEN`, GitHub allows 60 API requests an hour, which covers a few public repos. A read-only fine-grained token raises that and allows private repos.
 - Only documentation files are read, not source code. Files over 200 KB, build files such as `CMakeLists.txt`, and folders like `third_party/`, `tests/` and `LICENSES/` are skipped.
 - The search is keyword based. It works best when docs use the same words people ask with.
+
+## Moderation
+
+The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams and piracy. It works in two layers:
+
+1. **Built-in rules (free and instant).** These look for:
+   - known scam domains, such as the fake MrBeast casino `kegwin.com`
+   - lookalike domains (`dlscord-gift.com`, `steamcommunlty.com`), link shorteners, punycode and raw-IP links
+   - scam phrasing: crypto giveaways, promo codes, "withdrawal success", free Nitro or Steam gifts, "I accidentally reported you", "DM me to earn", fake urgency, `@everyone`
+   - new accounts posting links, and the same message posted in 3+ channels within 2 minutes
+2. **AI check (text and images).** When a post looks risky, or has 2+ images, the bot sends the text and images to the AI. That catches screenshot-only scams like those in [`examples/scam/`](examples/scam): a fake verified celebrity post, a casino bonus code page, a "Withdrawal Success" popup and a wallet receipt. The same images posted again reuse the first answer, with no second AI call.
+
+Each flagged post is reported to `MOD_LOG_CHANNEL_ID` with the reasons, the links and the images. Start with `MOD_ACTION=flag`, watch the reports for a while, then switch to `delete` (and optionally `MOD_TIMEOUT_MINUTES`) once you trust them.
+
+**Image scams need a model that can see images.** Claude models can. On OpenRouter, pick a model whose input includes images, and set it as `MOD_AI_MODEL` if your `/ask` model is text-only. Without one, the bot judges only the text and links, and image-only scams get through.
+
+**Bot permissions needed:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History, plus **Manage Messages** to delete and **Moderate Members** to time out.
+
+**Test without Discord:**
+
+```bash
+python -m bot.moderation.check examples/scam/*.webp           # uses your AI settings
+python -m bot.moderation.check --text "free nitro at dlscord-gift.com"
+python -m bot.moderation.check --rules-only --text "..."       # no AI key needed
+```
+
+To block a new scam site for everyone, add it to `bot/moderation/data/blocked_domains.txt`. For just your server, add it to `MOD_BLOCKED_DOMAINS`.
 
 ## Choosing an AI backend
 
@@ -95,11 +124,12 @@ The provider tests use mocked HTTP responses, so they need no API keys.
 
 ```
 bot/
-  main.py            Discord client, /ask and /reload-docs
+  main.py            Discord client, /ask, /reload-docs, moderation hook
   config.py          Reads settings from the environment
   docs/
     github.py        Downloads doc files from GitHub repos and wikis
     routing.py       Keyword routing (DOCS_ROUTES)
+  moderation/        Scam and piracy detection (see AGENTS.md for how it decides)
     index.py         Splits docs into sections and searches them (BM25)
   ai/
     base.py          AIProvider interface and Message type
@@ -109,6 +139,7 @@ bot/
     cli.py
     __init__.py      build_provider() picks one from AI_PROVIDER
 tests/
+examples/scam/       Real scam screenshots for tests and manual checks
 ```
 
 Adding a backend means writing one class with `async complete(messages) -> str` and a branch in `bot/ai/__init__.py`.

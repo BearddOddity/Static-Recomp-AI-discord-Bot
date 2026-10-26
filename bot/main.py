@@ -8,6 +8,8 @@ from discord import app_commands
 from .ai import AIProvider, Message, build_provider
 from .config import Settings, load_settings
 from .docs import Chunk, DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
+from .moderation import Classifier, LinkChecker, Moderator
+from .moderation.discord_glue import enforce, is_exempt, to_post
 
 log = logging.getLogger("bot")
 
@@ -41,6 +43,21 @@ class AssistantBot(discord.Client):
             raise RuntimeError(f"DOCS_ROUTES names repos missing from DOCS_REPOS: {', '.join(sorted(unknown))}")
         self.docs_fetcher = GitHubDocsFetcher(token=settings.github_token)
         self._docs_task: asyncio.Task | None = None
+
+        self.moderator: Moderator | None = None
+        self._mod_ai: AIProvider | None = None
+        if settings.mod_enabled:
+            if settings.mod_ai_scan != "off":
+                # A separate model (e.g. a vision model) can be used for moderation.
+                self._mod_ai = build_provider(settings, model=settings.mod_ai_model) if settings.mod_ai_model else self.ai
+                if not self._mod_ai.supports_images:
+                    log.warning("AI provider %s can't see images; image scams are judged by text only", self._mod_ai.name)
+            self.moderator = Moderator(
+                LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains),
+                Classifier(self._mod_ai) if self._mod_ai else None,
+                ai_scan=settings.mod_ai_scan,
+                min_confidence=settings.mod_min_confidence,
+            )
 
         self.tree = app_commands.CommandTree(self)
         self.tree.error(on_command_error)
@@ -81,9 +98,15 @@ class AssistantBot(discord.Client):
         log.info("Logged in as %s using AI provider %s", self.user, self.ai.name)
 
     async def on_message(self, message: discord.Message) -> None:
-        if message.author.bot:
+        if not self.moderator or is_exempt(message, self.settings):
             return
-        # Moderation rules (piracy, scam) go here in the next step.
+        try:
+            post = await to_post(message)
+            verdict = await self.moderator.review(post)
+            if verdict.flagged:
+                await enforce(message, post, verdict, self.settings)
+        except Exception:
+            log.exception("Moderation failed for message %s", message.id)
 
     async def close(self) -> None:
         if self._docs_task:
@@ -91,6 +114,8 @@ class AssistantBot(discord.Client):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._docs_task
         await self.docs_fetcher.aclose()
+        if self._mod_ai and self._mod_ai is not self.ai:
+            await self._mod_ai.aclose()
         await self.ai.aclose()
         await super().close()
 

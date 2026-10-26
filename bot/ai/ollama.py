@@ -7,6 +7,8 @@ class OllamaProvider(AIProvider):
     """A model running on a local Ollama server (https://ollama.com)."""
 
     name = "ollama"
+    # Needs a vision model such as llava or llama3.2-vision to use the images.
+    supports_images = True
 
     def __init__(
         self,
@@ -22,7 +24,10 @@ class OllamaProvider(AIProvider):
     async def complete(self, messages: list[Message]) -> str:
         body = {
             "model": self._model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [
+                {"role": m.role, "content": m.content, **({"images": [i.base64 for i in m.images]} if m.images else {})}
+                for m in messages
+            ],
             "stream": False,
         }
         response = await self._client.post(f"{self._host}/api/chat", json=body)

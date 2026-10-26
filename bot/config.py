@@ -44,6 +44,18 @@ class Settings:
     docs_refresh_minutes: float
     docs_excerpts: int
 
+    mod_enabled: bool
+    mod_log_channel_id: int | None
+    mod_action: str  # "flag" or "delete", for scams
+    mod_piracy_action: str  # "flag" or "delete"
+    mod_timeout_minutes: int
+    mod_ai_scan: str  # "off", "suspicious" or "all"
+    mod_ai_model: str
+    mod_min_confidence: float
+    mod_exempt_role_ids: frozenset[int]
+    mod_blocked_domains: frozenset[str]
+    mod_allowed_domains: frozenset[str]
+
 
 # Settings each provider cannot work without, checked at startup so a missing
 # key fails immediately instead of on the first /ask.
@@ -65,7 +77,25 @@ def _required(name: str) -> str:
     return value
 
 
-def load_settings() -> Settings:
+def _choice(name: str, default: str, options: tuple[str, ...]) -> str:
+    value = os.getenv(name, default).strip().lower() or default
+    if value not in options:
+        raise RuntimeError(f"{name} must be one of: {', '.join(options)}")
+    return value
+
+
+def _set(name: str) -> frozenset[str]:
+    return frozenset(p.strip().lower() for p in os.getenv(name, "").split(",") if p.strip())
+
+
+def _optional_int(name: str) -> int | None:
+    value = os.getenv(name, "").strip()
+    return int(value) if value else None
+
+
+def load_settings(require_discord: bool = True, require_ai: bool = True) -> Settings:
+    """Read settings from the environment and .env. Command-line tools that never
+    connect to Discord, or never call the AI, can skip those checks."""
     load_dotenv()
 
     provider = os.getenv("AI_PROVIDER", "anthropic").strip().lower()
@@ -73,13 +103,13 @@ def load_settings() -> Settings:
         raise RuntimeError(f"AI_PROVIDER must be one of: {', '.join(PROVIDERS)}")
 
     missing = [name for name in REQUIRED_BY_PROVIDER[provider] if not os.getenv(name, "").strip()]
-    if missing:
+    if missing and require_ai:
         raise RuntimeError(f"AI_PROVIDER={provider} needs: {', '.join(missing)}")
 
     guild = os.getenv("DISCORD_GUILD_ID", "").strip()
 
     return Settings(
-        discord_token=_required("DISCORD_TOKEN"),
+        discord_token=_required("DISCORD_TOKEN") if require_discord else os.getenv("DISCORD_TOKEN", ""),
         discord_guild_id=int(guild) if guild else None,
         ai_provider=provider,
         ai_timeout=float(os.getenv("AI_TIMEOUT", "60")),
@@ -103,4 +133,15 @@ def load_settings() -> Settings:
         github_token=os.getenv("GITHUB_TOKEN", ""),
         docs_refresh_minutes=float(os.getenv("DOCS_REFRESH_MINUTES", "360")),
         docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),
+        mod_enabled=os.getenv("MOD_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off"),
+        mod_log_channel_id=_optional_int("MOD_LOG_CHANNEL_ID"),
+        mod_action=_choice("MOD_ACTION", "flag", ("flag", "delete")),
+        mod_piracy_action=_choice("MOD_PIRACY_ACTION", "flag", ("flag", "delete")),
+        mod_timeout_minutes=int(os.getenv("MOD_TIMEOUT_MINUTES", "0") or 0),
+        mod_ai_scan=_choice("MOD_AI_SCAN", "suspicious", ("off", "suspicious", "all")),
+        mod_ai_model=os.getenv("MOD_AI_MODEL", "").strip(),
+        mod_min_confidence=float(os.getenv("MOD_MIN_CONFIDENCE", "0.75")),
+        mod_exempt_role_ids=frozenset(int(r) for r in _set("MOD_EXEMPT_ROLE_IDS")),
+        mod_blocked_domains=_set("MOD_BLOCKED_DOMAINS"),
+        mod_allowed_domains=_set("MOD_ALLOWED_DOMAINS"),
     )

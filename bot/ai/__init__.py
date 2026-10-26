@@ -1,5 +1,5 @@
 from ..config import Settings
-from .base import AIProvider, Message
+from .base import AIProvider, Image, Message
 from .anthropic_provider import AnthropicProvider
 from .cli import CLIProvider
 from .ollama import OllamaProvider
@@ -7,26 +7,30 @@ from .openai_compat import PRESETS, OpenAICompatibleProvider
 
 __all__ = [
     "AIProvider",
+    "Image",
     "Message",
     "build_provider",
 ]
 
 
-def build_provider(settings: Settings) -> AIProvider:
-    """Create the provider named by AI_PROVIDER, reading its settings."""
+def build_provider(settings: Settings, model: str = "") -> AIProvider:
+    """Create the provider named by AI_PROVIDER, reading its settings.
+
+    model overrides the configured model, e.g. a vision model for moderation.
+    """
     choice = settings.ai_provider
 
     if choice == "anthropic":
         return AnthropicProvider(
             api_key=settings.anthropic_api_key,
-            model=settings.anthropic_model,
+            model=model or settings.anthropic_model,
             timeout=settings.ai_timeout,
         )
 
     if choice == "ollama":
         return OllamaProvider(
             host=settings.ollama_host,
-            model=settings.ollama_model,
+            model=model or settings.ollama_model,
             timeout=settings.ai_timeout,
         )
 
@@ -44,7 +48,7 @@ def build_provider(settings: Settings) -> AIProvider:
         provider = OpenAICompatibleProvider(
             base_url=base_url,
             api_key=settings.openai_compat_api_key,
-            model=settings.openai_compat_model,
+            model=model or settings.openai_compat_model,
             timeout=settings.ai_timeout,
             extra_headers=extra_headers,
         )

@@ -1,0 +1,27 @@
+# Domains that never add link risk. One per line; subdomains match too.
+# Add more with MOD_ALLOWED_DOMAINS.
+github.com
+githubusercontent.com
+github.io
+gitlab.com
+discord.com
+discordapp.com
+discordapp.net
+discord.gg
+youtube.com
+youtu.be
+x.com
+twitter.com
+reddit.com
+wikipedia.org
+steampowered.com
+steamcommunity.com
+twitch.tv
+imgur.com
+tenor.com
+giphy.com
+google.com
+microsoft.com
+nvidia.com
+amd.com
+python.org

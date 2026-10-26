@@ -1,0 +1,5 @@
+# Domains that are always treated as scams. One per line; subdomains match too.
+# Add more with MOD_BLOCKED_DOMAINS, or here with a pull request.
+
+# Fake "MrBeast crypto casino" giveaway (examples/scam/mrbeast-casino-*.webp)
+kegwin.com

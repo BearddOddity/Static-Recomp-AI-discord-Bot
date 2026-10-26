@@ -10,6 +10,7 @@ class AnthropicProvider(AIProvider):
     """Claude via the Anthropic Messages API."""
 
     name = "anthropic"
+    supports_images = True
 
     def __init__(
         self,
@@ -26,7 +27,7 @@ class AnthropicProvider(AIProvider):
 
     async def complete(self, messages: list[Message]) -> str:
         system = "\n\n".join(m.content for m in messages if m.role == "system")
-        turns = [{"role": m.role, "content": m.content} for m in messages if m.role != "system"]
+        turns = [{"role": m.role, "content": _content(m)} for m in messages if m.role != "system"]
 
         body: dict = {"model": self._model, "max_tokens": self._max_tokens, "messages": turns}
         if system:
@@ -47,3 +48,17 @@ class AnthropicProvider(AIProvider):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _content(message: Message) -> str | list[dict]:
+    if not message.images:
+        return message.content
+    blocks: list[dict] = [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": image.media_type, "data": image.base64},
+        }
+        for image in message.images
+    ]
+    blocks.append({"type": "text", "text": message.content})
+    return blocks

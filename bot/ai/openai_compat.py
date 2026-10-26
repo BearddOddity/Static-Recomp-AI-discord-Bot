@@ -15,6 +15,8 @@ class OpenAICompatibleProvider(AIProvider):
     """Any endpoint that implements POST {base_url}/chat/completions."""
 
     name = "openai-compatible"
+    # The request format allows images; the chosen model must also support vision.
+    supports_images = True
 
     def __init__(
         self,
@@ -34,7 +36,7 @@ class OpenAICompatibleProvider(AIProvider):
     async def complete(self, messages: list[Message]) -> str:
         body = {
             "model": self._model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [{"role": m.role, "content": _content(m)} for m in messages],
         }
         response = await self._client.post(
             f"{self._base_url}/chat/completions",
@@ -53,3 +55,14 @@ class OpenAICompatibleProvider(AIProvider):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _content(message: Message) -> str | list[dict]:
+    if not message.images:
+        return message.content
+    parts: list[dict] = [{"type": "text", "text": message.content}]
+    parts.extend(
+        {"type": "image_url", "image_url": {"url": f"data:{i.media_type};base64,{i.base64}"}}
+        for i in message.images
+    )
+    return parts

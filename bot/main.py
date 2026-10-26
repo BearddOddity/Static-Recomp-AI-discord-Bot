@@ -1,13 +1,14 @@
 import asyncio
 import contextlib
 import logging
+import sys
 import time
 
 import discord
 from discord import app_commands
 
 from . import __version__
-from .ai import AIProvider, Image, build_provider
+from .ai import AIProvider, FallbackProvider, Image, build_provider
 from .assist import (
     AskContext,
     ConversationMemory,
@@ -21,12 +22,14 @@ from .assist import (
 )
 from .config import Settings, load_settings
 from .docs import DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
+from .health import GitHubReporter, HealthMonitor
 from .moderation import Classifier, LinkChecker, Moderator
 from .moderation.cases import CaseStore
 from .moderation.discord_glue import is_exempt, read_images, to_post
 from .moderation.review import PREFIX as CASE_PREFIX
 from .moderation.review import CaseManager
 from .moderation.rules import RulesBook
+from .updater import RESTART_EXIT_CODE, Updater
 
 log = logging.getLogger("bot")
 
@@ -58,6 +61,7 @@ class AssistantBot(discord.Client):
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
 
         self.settings = settings
+        self.exit_code = 0
         self.ai: AIProvider = build_provider(settings)
 
         self.docs = DocsIndex()
@@ -79,8 +83,14 @@ class AssistantBot(discord.Client):
         self._mod_ai: AIProvider | None = None
         if settings.mod_enabled:
             if settings.mod_ai_scan != "off":
-                # A separate model (e.g. a vision model) can be used for moderation.
-                self._mod_ai = build_provider(settings, model=settings.mod_ai_model) if settings.mod_ai_model else self.ai
+                # A separate model (e.g. a vision model) can be used for moderation. With
+                # OpenRouter picking free models itself, moderation gets its own, preferring
+                # models that can read screenshots.
+                auto_free = settings.ai_provider == "openrouter" and not settings.openai_compat_model
+                self._mod_ai = (
+                    build_provider(settings, model=settings.mod_ai_model, setting="MOD_AI_MODEL", needs_images=True)
+                    if settings.mod_ai_model or auto_free else self.ai
+                )
                 if not self._mod_ai.supports_images:
                     log.warning("AI provider %s can't see images; image scams are judged by text only", self._mod_ai.name)
             self.moderator = Moderator(
@@ -92,6 +102,19 @@ class AssistantBot(discord.Client):
 
         self.conversations = ConversationMemory()
         self._mention_asked: dict[int, float] = {}
+
+        # When a model disappears or the key stops working: tell the moderators, and
+        # propose the fix on GitHub (a pull request for a model, an issue for a key).
+        reporter = None
+        if settings.health_github_repo and settings.health_github_token:
+            reporter = GitHubReporter(settings.health_github_repo, settings.health_github_token)
+        self.health = HealthMonitor(self.notify_mods, reporter, settings.health_pr_file)
+        for provider in {id(p): p for p in (self.ai, self._mod_ai) if p}.values():
+            if isinstance(provider, FallbackProvider):
+                provider.on_problem = self.health.report
+
+        self.updater = Updater(branch=settings.update_branch)
+        self._update_task: asyncio.Task | None = None
 
         self.tree = app_commands.CommandTree(self)
         self.tree.error(on_command_error)
@@ -105,6 +128,11 @@ class AssistantBot(discord.Client):
         if self.docs_specs:
             self._docs_task = asyncio.create_task(self._refresh_docs_forever())
         self._renew_task = asyncio.create_task(self._renew_timeouts_forever())
+        if self.settings.auto_update and self.settings.update_check_minutes > 0:
+            if self.updater.available:
+                self._update_task = asyncio.create_task(self._update_forever())
+            else:
+                log.info("Auto-update is off: the bot isn't running from a git clone (see docs/HOSTING.md)")
 
         # Guild sync shows commands at once; global sync can take an hour to appear.
         if self.settings.discord_guild_id:
@@ -131,6 +159,31 @@ class AssistantBot(discord.Client):
             if self.settings.docs_refresh_minutes <= 0:
                 return
             await asyncio.sleep(self.settings.docs_refresh_minutes * 60)
+
+    async def _update_forever(self) -> None:
+        await self.wait_until_ready()
+        while True:
+            await asyncio.sleep(self.settings.update_check_minutes * 60)
+            try:
+                update = await self.updater.check()
+            except Exception:
+                log.exception("Checking for updates failed")
+                continue
+            if update:
+                log.info("Updated %s -> %s (%s); restarting", update.old, update.new, update.summary)
+                await self.notify_mods(f"🔄 Updated to `{update.summary}`. Restarting, back in a moment.")
+                # start.sh, start.bat, the service and Docker all start the bot again.
+                self.exit_code = RESTART_EXIT_CODE
+                asyncio.create_task(self.close())
+                return
+
+    async def notify_mods(self, text: str) -> None:
+        channel = self.get_channel(self.settings.mod_log_channel_id) if self.settings.mod_log_channel_id else None
+        if isinstance(channel, discord.abc.Messageable):
+            try:
+                await channel.send(text[:2000])
+            except discord.HTTPException:
+                log.warning("Couldn't post to the mod log: %s", text)
 
     async def _renew_timeouts_forever(self) -> None:
         await self.wait_until_ready()
@@ -306,7 +359,7 @@ class AssistantBot(discord.Client):
                     log.exception("Case button %s failed", custom_id)
 
     async def close(self) -> None:
-        for task in (self._docs_task, self._renew_task):
+        for task in (self._docs_task, self._renew_task, self._update_task):
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -315,6 +368,7 @@ class AssistantBot(discord.Client):
         if self._mod_ai and self._mod_ai is not self.ai:
             await self._mod_ai.aclose()
         await self.ai.aclose()
+        await self.health.aclose()
         self.store.close()
         await super().close()
 
@@ -424,7 +478,19 @@ async def status(interaction: discord.Interaction) -> None:
     ok, bad = "✅", "⚠️"
     lines = [f"**{bot.user.name} status** (v{__version__})"]
 
-    lines.append(f"{ok} AI for /ask: `{bot.ai.name}`")
+    def model_of(provider: AIProvider) -> str:
+        if isinstance(provider, FallbackProvider):
+            return f"`{provider.name}` · `{provider.current or 'picks a free model on first use'}`"
+        return f"`{provider.name}`"
+
+    lines.append(f"{ok} AI for /ask: {model_of(bot.ai)}")
+    for problem in bot.health.problems[-3:]:
+        lines.append(f"{bad} AI {problem.kind.replace('_', ' ')} problem with `{problem.model}`"
+                     + (f", now using `{problem.replacement}`" if problem.replacement else ""))
+    if settings.auto_update and bot.updater.available:
+        lines.append(f"{ok} Auto-update: checks GitHub every {settings.update_check_minutes:g} minutes")
+    else:
+        lines.append(f"{bad} Auto-update is off (run from a git clone with AUTO_UPDATE=true)")
     if not settings.mod_enabled:
         lines.append(f"{bad} Moderation is off (MOD_ENABLED=false)")
     elif bot._mod_ai is None:
@@ -432,7 +498,7 @@ async def status(interaction: discord.Interaction) -> None:
     else:
         vision = bot._mod_ai.supports_images
         lines.append(
-            f"{ok if vision else bad} Moderation AI: `{bot._mod_ai.name}`, scan mode `{settings.mod_ai_scan}`, "
+            f"{ok if vision else bad} Moderation AI: {model_of(bot._mod_ai)}, scan mode `{settings.mod_ai_scan}`, "
             + ("can see images" if vision else "can't see images, so image-only scams get through")
         )
 
@@ -472,10 +538,25 @@ async def status(interaction: discord.Interaction) -> None:
     await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
 
 
+# Exit codes the start scripts understand: 0 = stopped on purpose, 2 = a setting needs
+# fixing (restarting won't help), 3 = updated, start again. Anything else: crashed.
+CONFIG_EXIT_CODE = 2
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    settings = load_settings()
-    AssistantBot(settings).run(settings.discord_token, log_handler=None)
+    try:
+        settings = load_settings()
+        bot = AssistantBot(settings)
+    except (RuntimeError, ValueError) as error:
+        log.error("Setup problem: %s", error)
+        sys.exit(CONFIG_EXIT_CODE)
+    try:
+        bot.run(settings.discord_token, log_handler=None)
+    except (discord.LoginFailure, discord.PrivilegedIntentsRequired) as error:
+        log.error("Discord refused to log in: %s. Check DISCORD_TOKEN and the Message Content Intent.", error)
+        sys.exit(CONFIG_EXIT_CODE)
+    sys.exit(bot.exit_code)
 
 
 if __name__ == "__main__":

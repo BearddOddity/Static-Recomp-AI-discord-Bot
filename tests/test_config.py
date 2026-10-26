@@ -1,7 +1,7 @@
 import pytest
 
 from bot import config
-from bot.ai import build_provider
+from bot.ai import FallbackProvider, build_provider
 from bot.ai.openai_compat import OpenAICompatibleProvider
 
 
@@ -36,10 +36,20 @@ def test_unknown_provider_is_rejected(monkeypatch):
 def test_free_preset_builds_openai_compatible_provider(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "key")
-    monkeypatch.setenv("OPENAI_COMPAT_MODEL", "some/model:free")
+    monkeypatch.setenv("OPENAI_COMPAT_MODEL", "some/model:free, backup/model:free")
     provider = build_provider(config.load_settings())
-    assert isinstance(provider, OpenAICompatibleProvider)
-    assert provider._base_url == "https://openrouter.ai/api/v1"
+    assert isinstance(provider, FallbackProvider) and provider.name == "openrouter"
+    assert provider.configured == ["some/model:free", "backup/model:free"]
+    inner = provider._provider("some/model:free")
+    assert isinstance(inner, OpenAICompatibleProvider) and inner._base_url == "https://openrouter.ai/api/v1"
+
+
+def test_openrouter_needs_only_a_key(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "key")
+    monkeypatch.delenv("OPENAI_COMPAT_MODEL", raising=False)
+    provider = build_provider(config.load_settings())
+    assert provider.configured == [] and provider._finder is not None  # picks a free model
 
 
 def test_template_defaults_are_generic_and_delete_on_warning(monkeypatch):

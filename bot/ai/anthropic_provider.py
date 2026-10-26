@@ -1,6 +1,6 @@
 import httpx
 
-from .base import AIProvider, Message
+from .base import AIError, AIProvider, Message, check_response
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
@@ -33,17 +33,19 @@ class AnthropicProvider(AIProvider):
         if system:
             body["system"] = system
 
-        response = await self._client.post(
-            API_URL,
-            json=body,
-            headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": API_VERSION,
-                "content-type": "application/json",
-            },
-        )
-        response.raise_for_status()
-        blocks = response.json().get("content", [])
+        try:
+            response = await self._client.post(
+                API_URL,
+                json=body,
+                headers={
+                    "x-api-key": self._api_key,
+                    "anthropic-version": API_VERSION,
+                    "content-type": "application/json",
+                },
+            )
+        except httpx.TransportError as error:
+            raise AIError("unavailable", f"anthropic: {error!r}") from error
+        blocks = check_response(response, f"anthropic ({self._model})").get("content", [])
         return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
 
     async def aclose(self) -> None:

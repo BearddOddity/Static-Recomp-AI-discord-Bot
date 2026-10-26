@@ -37,6 +37,8 @@ The tests use mocked HTTP and Discord objects, so they need no API keys or netwo
 bot/
   main.py            Discord client, /ask, /reload-docs, /warn, /warnings, /status, events
   assist.py          Finding doc excerpts, follow-up memory, splitting long answers
+  health.py          AI problems -> #mod-log notice + GitHub pull request or issue
+  updater.py         Self-update from GitHub, then restart
   config.py          Reads settings from the environment, .env and SERVER_PROFILE
   docs/
     github.py        Downloads doc files from GitHub repos and wikis
@@ -49,11 +51,13 @@ bot/
     openai_compat.py   OpenRouter, Groq, Gemini and any OpenAI-compatible API
     ollama.py
     cli.py
+    fallback.py      Backup models and free OpenRouter models
     __init__.py      build_provider() picks one from AI_PROVIDER
 tests/
 servers/static-recomp/  One community's profile (delete it in your own copy)
 examples/scam/       Real scam screenshots for tests and manual checks
-start.sh, start.bat  One-click start (sets up Python on first run)
+start.sh, start.bat  One-click start; restarts after updates and crashes
+deploy/              Start at boot: install-linux.sh (systemd), install-windows.bat
 Dockerfile, docker-compose.yml
 ```
 

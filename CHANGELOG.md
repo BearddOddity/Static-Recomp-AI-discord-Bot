@@ -22,6 +22,12 @@ First public test build. Expect rough edges; please report problems as GitHub is
 - Any AI backend: Claude, OpenRouter (free models, nothing to host), Groq, Gemini, any OpenAI-compatible API, a local Ollama model, or a command-line tool.
 - Follows the server's rules channel and the anti-piracy policy in its answers.
 
+### Staying online
+- Runs without your PC: one-step installers start it at boot and restart it after crashes (`deploy/install-linux.sh` for servers and Raspberry Pi, `deploy/install-windows.bat`, Docker). [docs/HOSTING.md](docs/HOSTING.md) covers free cloud servers.
+- Self-updating: a git clone pulls new commits from GitHub every 30 minutes and restarts with them, never overwriting local edits.
+- Free-model fallback: comma-separated backup models, and OpenRouter picks today's free models when the listed ones are busy or removed. With OpenRouter, only a key is required.
+- AI health: a removed model or a dead key is posted in `#mod-log`. With a GitHub token, a model swap becomes a pull request against the server profile and a key problem becomes an issue. The bot never merges.
+
 ### Moderation
 - Scam detection: known scam and lookalike domains, link shorteners, scam phrasing (crypto giveaways, promo codes, free Nitro, "withdrawal success"), new accounts and cross-posting, plus an AI that reads screenshots for image-only scams.
 - Anti-piracy: game-file attachments (.elf, .xbe, .xex, .iso and other disc images, ROMs, packages, keys), including inside .zip files, piracy-site links and direct game-file links are always removed.
@@ -47,4 +53,5 @@ First public test build. Expect rough edges; please report problems as GitHub is
 - Docs search is keyword based with AI rephrasing; it doesn't understand meaning the way embeddings would.
 - Follow-up memory is lost when the bot restarts.
 - The assistant can't browse the web, so it doesn't know recent news or prices.
+- Self-update and boot installers haven't been tried on a real server yet; the updater is tested against real git repositories.
 - The Docker image hasn't been built and tested yet.

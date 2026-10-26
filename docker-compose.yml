@@ -1,8 +1,12 @@
 # Run with:  docker compose up -d      Logs:  docker compose logs -f
+# The bot runs from this folder (a git clone), so it can update itself: after
+# pulling new commits it exits, and Docker starts it again with the new code.
+# Docker also starts it when the machine boots.
 services:
   bot:
     build: .
     env_file: .env
     volumes:
-      - ./data:/app/data
+      - .:/app
+    command: sh -c "pip install --quiet -r requirements.txt && python -m bot.main"
     restart: unless-stopped

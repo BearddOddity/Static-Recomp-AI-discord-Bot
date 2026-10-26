@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 
-# git is needed to read GitHub wikis (DOCS_REPOS entries ending in .wiki)
+# git reads GitHub wikis (DOCS_REPOS entries ending in .wiki) and does self-updates.
+# docker-compose mounts the clone, owned by another user, so git must trust it.
 RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory '*'
 
 WORKDIR /app
 COPY requirements.txt .

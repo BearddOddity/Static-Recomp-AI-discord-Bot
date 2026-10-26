@@ -5,14 +5,14 @@ Pick any AI backend: free hosted models, Claude, a model on your own machine, or
 ## Quickstart with OpenRouter (free, nothing to host)
 
 1. Make an account at https://openrouter.ai and create a key at https://openrouter.ai/keys.
-2. Pick a free model at https://openrouter.ai/models?max_price=0. Free model IDs end in `:free`.
-3. In `.env`:
+2. In `.env`:
 
    ```
    AI_PROVIDER=openrouter
    OPENAI_COMPAT_API_KEY=sk-or-...
-   OPENAI_COMPAT_MODEL=<model id ending in :free>
    ```
+
+That's enough: with no model set, the bot reads OpenRouter's list of free models and uses one that works, preferring one that can read images for moderation. To choose yourself, set `OPENAI_COMPAT_MODEL` (and `MOD_AI_MODEL`) to models from https://openrouter.ai/models?max_price=0, where free IDs end in `:free`. Comma-separate backups: `OPENAI_COMPAT_MODEL=first:free,second:free`. When every listed model is busy or gone, the bot falls back to other free models (`OPENROUTER_FREE_FALLBACK=true`) and tells you, as described in [Hosting → AI health](HOSTING.md#ai-health).
 
 Free OpenRouter models have per-minute and daily request limits. Adding a small credit balance raises them. The bot sends `X-Title` (and `HTTP-Referer` when `OPENROUTER_SITE_URL` is set) so OpenRouter can credit your app.
 

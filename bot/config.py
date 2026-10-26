@@ -39,6 +39,14 @@ class Settings:
 
     openrouter_app_name: str
     openrouter_site_url: str
+    openrouter_free_fallback: bool
+
+    auto_update: bool
+    update_check_minutes: float
+    update_branch: str
+    health_github_repo: str
+    health_github_token: str
+    health_pr_file: str
 
     docs_repos: str
     docs_routes: str
@@ -77,7 +85,8 @@ class Settings:
 # key fails immediately instead of on the first /ask.
 REQUIRED_BY_PROVIDER = {
     "anthropic": ("ANTHROPIC_API_KEY",),
-    "openrouter": ("OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_MODEL"),
+    # OpenRouter can pick a free model by itself, so only the key is required.
+    "openrouter": ("OPENAI_COMPAT_API_KEY",),
     "groq": ("OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_MODEL"),
     "gemini": ("OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_MODEL"),
     "openai_compatible": ("OPENAI_COMPAT_BASE_URL", "OPENAI_COMPAT_MODEL"),
@@ -170,6 +179,14 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "10")),
         openrouter_app_name=_get("OPENROUTER_APP_NAME", "AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
+        openrouter_free_fallback=_flag("OPENROUTER_FREE_FALLBACK", True),
+        auto_update=_flag("AUTO_UPDATE", True),
+        update_check_minutes=float(os.getenv("UPDATE_CHECK_MINUTES", "30") or 30),
+        update_branch=os.getenv("UPDATE_BRANCH", "").strip(),
+        health_github_repo=os.getenv("HEALTH_GITHUB_REPO", "").strip(),
+        health_github_token=os.getenv("HEALTH_GITHUB_TOKEN", "").strip(),
+        # A model swap is proposed in the server profile (it's in git; .env isn't).
+        health_pr_file=_get("HEALTH_PR_FILE", os.getenv("SERVER_PROFILE", "").strip()),
         docs_repos=os.getenv("DOCS_REPOS", ""),
         docs_routes=os.getenv("DOCS_ROUTES", ""),
         github_token=os.getenv("GITHUB_TOKEN", ""),

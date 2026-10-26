@@ -112,11 +112,15 @@ Then try it:
 
 ## 9. Keep it running
 
-The bot is only online while its computer is on and the window or container is running. For 24/7, use any always-on machine: a spare PC, a Raspberry Pi, or a small rented Linux server (VPS) with Docker. Use `docker compose up -d` there; it restarts by itself after reboots.
+You don't need to keep `start.bat` open on your PC. Put the bot on any always-on machine, ideally a **free cloud server**, and it runs by itself: it starts at boot, restarts after crashes, and **updates itself from GitHub**. [docs/HOSTING.md](docs/HOSTING.md) walks through it, including free options. In short:
 
-Cases and warnings are stored in the `data/` folder. Keep that folder when you move or update the bot.
+- **Linux server or Raspberry Pi:** `git clone` the repo, fill in `.env`, run `./deploy/install-linux.sh`.
+- **Docker:** `git clone` the repo, fill in `.env`, run `docker compose up -d`.
+- **Your Windows PC:** run `deploy\install-windows.bat` once, and the bot starts whenever you sign in.
 
-**Updating:** download the new version (or run `git pull`), keep your `.env` and `data/`, and start it again.
+Self-updates need a `git clone`, not the ZIP download. Cases and warnings are stored in the `data/` folder; keep it if you move the bot.
+
+**When the AI needs attention:** if a free model disappears, the bot switches to another free one by itself and says so in `#mod-log`. With `HEALTH_GITHUB_REPO` and `HEALTH_GITHUB_TOKEN` set, it also opens a pull request that makes the switch permanent (merge it and the bot updates itself), or an issue if the key needs replacing.
 
 ## 10. How it treats members
 

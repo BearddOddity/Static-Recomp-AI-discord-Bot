@@ -1,22 +1,38 @@
+import httpx
+
 from ..config import Settings
-from .base import AIProvider, Image, Message
+from .base import AIError, AIProvider, Image, Message
 from .anthropic_provider import AnthropicProvider
 from .cli import CLIProvider
+from .fallback import FallbackProvider, FreeModelFinder, Problem
 from .ollama import OllamaProvider
 from .openai_compat import PRESETS, OpenAICompatibleProvider
 
 __all__ = [
+    "AIError",
     "AIProvider",
+    "FallbackProvider",
+    "Problem",
     "Image",
     "Message",
     "build_provider",
 ]
 
 
-def build_provider(settings: Settings, model: str = "") -> AIProvider:
+def models_from(value: str) -> list[str]:
+    """A setting may list several models, comma separated: the first is used, the
+    rest are backups."""
+    return [m.strip() for m in value.split(",") if m.strip()]
+
+
+def build_provider(
+    settings: Settings, model: str = "", *, setting: str = "", needs_images: bool = False
+) -> AIProvider:
     """Create the provider named by AI_PROVIDER, reading its settings.
 
-    model overrides the configured model, e.g. a vision model for moderation.
+    model overrides the configured model, e.g. a vision model for moderation, and
+    setting names where it came from (for problem reports). Hosted OpenAI-style
+    providers get model fallback; OpenRouter also falls back to its free models.
     """
     choice = settings.ai_provider
 
@@ -45,14 +61,27 @@ def build_provider(settings: Settings, model: str = "") -> AIProvider:
             extra_headers["X-Title"] = settings.openrouter_app_name
             if settings.openrouter_site_url:
                 extra_headers["HTTP-Referer"] = settings.openrouter_site_url
-        provider = OpenAICompatibleProvider(
-            base_url=base_url,
-            api_key=settings.openai_compat_api_key,
-            model=model or settings.openai_compat_model,
-            timeout=settings.ai_timeout,
-            extra_headers=extra_headers,
+        client = httpx.AsyncClient(timeout=settings.ai_timeout)
+
+        def make(name: str) -> AIProvider:
+            provider = OpenAICompatibleProvider(
+                base_url=base_url,
+                api_key=settings.openai_compat_api_key,
+                model=name,
+                extra_headers=extra_headers,
+                client=client,
+            )
+            provider.name = choice
+            return provider
+
+        auto_free = choice == "openrouter" and settings.openrouter_free_fallback
+        return FallbackProvider(
+            make,
+            models_from(model or settings.openai_compat_model),
+            setting=setting or "OPENAI_COMPAT_MODEL",
+            name=choice,
+            finder=FreeModelFinder(client) if auto_free else None,
+            needs_images=needs_images,
         )
-        provider.name = choice
-        return provider
 
     raise ValueError(f"Unknown AI_PROVIDER: {choice!r}")

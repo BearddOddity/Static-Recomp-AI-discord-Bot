@@ -38,15 +38,15 @@ Static Recomp AI is an open source Discord bot for the static recompilation comm
 ## Requirements
 
 - A Discord server where you have **admin** rights
-- A computer or server that stays on:
-  - Windows, macOS or Linux with **Python 3.10** or newer and **Git**
+- Somewhere to run it. It doesn't have to be your PC:
+  - a **free cloud server** ([how](docs/HOSTING.md)), a Raspberry Pi, or any machine with **Python 3.10+** and **Git**
   - or anything that runs **Docker**
 - An AI model, any one of these:
   - **OpenRouter**, Groq or Gemini: free tiers, nothing to host
   - **Claude**: paid, and the best at reading screenshots
   - **Ollama** or a command-line AI tool: runs on your own hardware
 
-No AI runs on your computer unless you choose Ollama, so a Raspberry Pi or a small VPS is plenty.
+No AI runs on that machine unless you choose Ollama, so the smallest free cloud server is plenty.
 
 ## How to Install
 
@@ -56,7 +56,7 @@ The full step-by-step walkthrough is in **[SETUP.md](SETUP.md)**. It takes about
 
 2) Invite it with the link in [SETUP.md](SETUP.md#2-invite-the-bot-to-your-server). The link grants exactly the permissions the bot needs and nothing more.
 
-3) Download [the latest release](https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/releases) (or **Code → Download ZIP**) and unzip it somewhere permanent.
+3) Download the bot with `git clone https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot`, so it can update itself. (The [release ZIP](https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/releases) works too, without self-updates.)
 
 4) Copy `.env.example` to `.env` and fill in your bot token, your AI key and your `#mod-log` channel ID. For the Static Recomp server, also add:
 
@@ -64,15 +64,16 @@ The full step-by-step walkthrough is in **[SETUP.md](SETUP.md)**. It takes about
     SERVER_PROFILE=servers/static-recomp/server.env
     ```
 
-5) Start it:
-    - **Windows:** double-click `start.bat`
-    - **macOS / Linux:** run `./start.sh`
-    - **Docker:** run `docker compose up -d`
+5) Start it, and keep it running without you:
+    - **Linux server / Raspberry Pi:** run `./deploy/install-linux.sh` (starts at boot)
+    - **Docker:** run `docker compose up -d` (starts at boot)
+    - **Windows:** run `deploy\install-windows.bat` (starts when you sign in), or just double-click `start.bat`
+    - **macOS:** run `./start.sh`
 
 6) In Discord, run **`/status`**. It checks every setting and permission and tells you what to fix.
 
 > [!TIP]
-> No AI key yet? A free [OpenRouter](https://openrouter.ai/keys) key works. Pick any model whose ID ends in `:free`. Use one that accepts images for `MOD_AI_MODEL`, so screenshot scams are caught too.
+> No AI key yet? A free [OpenRouter](https://openrouter.ai/keys) key is all you need. Leave the model empty and the bot picks free models by itself, including one that can read screenshots for moderation.
 
 ## Features
 
@@ -85,6 +86,15 @@ Ask it anything: your build fails, which controller works best, what an error me
 - **Knows the room:** who's asking, which channel, today's date and the last few messages, so "what do you think of Sam's idea?" makes sense.
 - **Reads screenshots:** attach an error dialog or a crash and ask about it.
 - **Honest:** it says when it's unsure, follows your `#rules`, and never helps find game files.
+
+### Stays Online by Itself
+
+Feature|What it does
+-|-
+Runs without your PC|Install it once on a free cloud server; it starts at boot and restarts after crashes ([guide](docs/HOSTING.md))
+Self-updating|Every 30 minutes it pulls new commits from GitHub and restarts with them
+Free-model fallback|If an OpenRouter model is busy or removed, it switches to another free model and keeps answering
+Asks for help on GitHub|A removed model becomes a **pull request** that swaps in a working one. A dead key becomes an **issue**, because keys never go in git. Both are posted in `#mod-log`
 
 ### Docs Search
 
@@ -151,7 +161,10 @@ Every setting lives in `.env`, and [`.env.example`](.env.example) explains each 
 Setting|Default|What it does
 -|-|-
 `AI_PROVIDER`|`openrouter`|Which AI to use ([all providers](docs/AI-PROVIDERS.md))
-`MOD_AI_MODEL`||A separate image-capable model for moderation
+`OPENAI_COMPAT_MODEL`|*(free pick)*|Model for answers. Comma-separate backups
+`MOD_AI_MODEL`|*(free pick)*|A separate image-capable model for moderation
+`HEALTH_GITHUB_TOKEN`||Lets the bot open pull requests and issues when the AI needs attention ([how](docs/HOSTING.md#ai-health))
+`AUTO_UPDATE`|`true`|Pull updates from GitHub and restart
 `MOD_LOG_CHANNEL_ID`||Where case reports go
 `ASSISTANT_CHANNEL_IDS`||Channels where the bot answers every message
 `MOD_WARN_LIMIT`|`3`|The warning that times a member out

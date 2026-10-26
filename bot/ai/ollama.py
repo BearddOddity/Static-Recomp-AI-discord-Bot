@@ -1,6 +1,6 @@
 import httpx
 
-from .base import AIProvider, Message
+from .base import AIError, AIProvider, Message, check_response
 
 
 class OllamaProvider(AIProvider):
@@ -30,9 +30,11 @@ class OllamaProvider(AIProvider):
             ],
             "stream": False,
         }
-        response = await self._client.post(f"{self._host}/api/chat", json=body)
-        response.raise_for_status()
-        return response.json().get("message", {}).get("content", "")
+        try:
+            response = await self._client.post(f"{self._host}/api/chat", json=body)
+        except httpx.TransportError as error:
+            raise AIError("unavailable", f"ollama: is it running at {self._host}? {error!r}") from error
+        return check_response(response, f"ollama ({self._model})").get("message", {}).get("content", "")
 
     async def aclose(self) -> None:
         await self._client.aclose()

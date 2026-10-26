@@ -27,6 +27,19 @@ def is_exempt(message: discord.Message, settings: Settings) -> bool:
     return any(role.id in settings.mod_exempt_role_ids for role in author.roles)
 
 
+async def read_images(message: discord.Message) -> list[Image]:
+    """The message's image attachments (up to MAX_IMAGES), for the assistant to look at."""
+    images = []
+    for attachment in message.attachments:
+        media_type = (attachment.content_type or "").split(";")[0]
+        if media_type in IMAGE_TYPES and attachment.size <= MAX_IMAGE_BYTES and len(images) < MAX_IMAGES:
+            try:
+                images.append(Image(await attachment.read(), media_type))
+            except discord.HTTPException:
+                log.warning("Could not download attachment %s", attachment.id)
+    return images
+
+
 async def to_post(message: discord.Message, rules: str = "") -> Post:
     images, names = [], []
     for attachment in message.attachments:

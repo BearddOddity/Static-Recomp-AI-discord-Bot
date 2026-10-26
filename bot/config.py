@@ -47,6 +47,8 @@ class Settings:
     docs_excerpts: int
     docs_ai_query: str  # "off", "fallback" or "always"
     ask_on_mention: bool
+    assistant_channel_ids: frozenset[int]
+    chat_context_messages: int
 
     mod_enabled: bool
     mod_log_channel_id: int | None
@@ -155,7 +157,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ai_provider=provider,
         ai_timeout=float(os.getenv("AI_TIMEOUT", "60")),
         community_about=about,
-        system_prompt=_get("AI_SYSTEM_PROMPT", f"You are a helpful assistant for a Discord community about {about}."),
+        # Empty means the built-in personality (bot/assist.py PERSONA).
+        system_prompt=os.getenv("AI_SYSTEM_PROMPT", "").strip(),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
         openai_compat_base_url=os.getenv("OPENAI_COMPAT_BASE_URL", ""),
@@ -164,7 +167,7 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
         ai_cli_command=os.getenv("AI_CLI_COMMAND", ""),
-        ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "30")),
+        ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "10")),
         openrouter_app_name=_get("OPENROUTER_APP_NAME", "AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
         docs_repos=os.getenv("DOCS_REPOS", ""),
@@ -174,6 +177,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),
         docs_ai_query=_choice("DOCS_AI_QUERY", "fallback", ("off", "fallback", "always")),
         ask_on_mention=_flag("ASK_ON_MENTION", True),
+        assistant_channel_ids=frozenset(int(c) for c in _set("ASSISTANT_CHANNEL_IDS")),
+        chat_context_messages=max(0, int(os.getenv("CHAT_CONTEXT_MESSAGES", "8") or 8)),
         mod_enabled=_flag("MOD_ENABLED", True),
         mod_log_channel_id=_optional_int("MOD_LOG_CHANNEL_ID"),
         mod_action=_choice("MOD_ACTION", "delete", ("delete", "flag")),

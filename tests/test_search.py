@@ -161,3 +161,35 @@ def test_who_is_asking_the_bot():
     assert conversation_for("nice report", 99, 7, memory) is None                    # reply to a case report
     assert conversation_for("hello all", None, 7, memory) is None
     assert strip_mention("<@7> how do I build?", 7) == "how do I build?"
+
+
+def test_small_talk_gets_no_doc_excerpts():
+    index, router = DocsIndex([GUIDE]), DocsRouter.parse("")
+    # Without the AI: weak matches are left out instead of padding the prompt.
+    chunks, _ = run(find_excerpts(index, router, "what's a good pizza topping?", limit=3, ai_query="off"))
+    assert chunks == []
+    # With the AI: it says the message has nothing to do with the docs.
+    ai = FakeAI("NONE")
+    chunks, _ = run(find_excerpts(index, router, "tell me a joke about robots", limit=3, ai=ai))
+    assert chunks == [] and len(ai.calls) == 1
+
+
+def test_assistant_prompt_has_persona_context_and_images():
+    from datetime import datetime, timezone
+
+    from bot.ai import Image
+    from bot.assist import PERSONA, AskContext, build_messages, persona_prompt
+
+    context = AskContext(bot_name="Helper", server="Recomp", channel="help", asker="Dana",
+                         now=datetime(2026, 10, 26, 21, 0, tzinfo=timezone.utc), recent=("Sam: hi all",))
+    prompt = persona_prompt("", context, "retro games")
+    assert prompt.startswith("You are Helper, the AI assistant of the Recomp Discord server, a community about retro games.")
+    assert "anything members ask" in PERSONA
+    assert persona_prompt("Custom {name} for {server}", context, "x") == "Custom Helper for Recomp"
+
+    image = Image(b"png", "image/png")
+    messages = build_messages(prompt, "what's this error?", [], context=context, images=[image])
+    system = "\n".join(m.content for m in messages if m.role == "system")
+    assert "talking with Dana in #help" in system and "Monday 26 October 2026" in system
+    assert "Sam: hi all" in system and "anti-piracy" in system
+    assert messages[-1].images == (image,)

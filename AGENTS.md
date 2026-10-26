@@ -6,7 +6,7 @@ This file is for AI models (Claude, OpenCode, Kilo, Codex, Copilot and others) t
 
 An open source (MIT) Discord bot **template** for game communities. It has two jobs:
 
-1. **Assistance:** `/ask` answers questions using documentation pulled from GitHub repos the server chooses.
+1. **Assistance:** a general AI assistant (personality inspired by J.A.R.V.I.S., the `PERSONA` in `bot/assist.py`) that answers anything via `/ask`, mentions, replies and assistant channels. Documentation pulled from GitHub repos the server chooses is a *reference* it cites when relevant, never a limit on what it answers.
 2. **Moderation:** it watches messages for **scams** (including scams made of images only), **piracy**, **hate speech** and breaking the server's **#rules**. Each violation deletes the message, warns the member and posts a case report; the 3rd warning (or any hate speech) times them out pending human review, and moderators decide with buttons.
 
 **Template vs. server.** `bot/` must stay free of any one community's details: no server names, repo names or keywords in code, prompts or defaults. A community's details go in a profile, `servers/<name>/server.env` (loaded through `SERVER_PROFILE`), with its own README and tests. `servers/static-recomp/` is the profile for the community this bot was first built for (static recompilation: xboxrecomp, ps3recomp, ReXGlue); people starting from the template delete it. Test fixtures use made-up repos such as `example/switch-tools`.

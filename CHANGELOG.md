@@ -11,6 +11,9 @@ First public test build. Expect rough edges; please report problems as GitHub is
 - The Static Recomp community's settings ship as `servers/static-recomp/`: xboxrecomp, ps3recomp, ReXGlue and its wiki, with "360" / "Xbox 360" → ReXGlue, "Xbox" → xboxrecomp and "PS3" → ps3recomp.
 
 ### Assistance
+- A general AI assistant with a personality inspired by Tony Stark's J.A.R.V.I.S.: calm, witty, precise and polite. It answers anything, from the community's projects to programming, games, general knowledge and small talk, and uses the GitHub docs as a reference rather than a limit.
+- Knows who's asking, the server, the channel, the date and the last few messages in the channel. Reads screenshots attached to a question (with an image-capable model).
+- Optional assistant channels (`ASSISTANT_CHANNEL_IDS`) where it answers every message.
 - `/ask` answers questions using documentation pulled from the GitHub repos and wikis you list, with source links under every answer.
 - Keyword routing sends a question that names a platform to that project's docs only.
 - Ask by mentioning the bot, and ask follow-ups by replying to its answer. Long answers come in up to three messages instead of being cut off.
@@ -43,4 +46,5 @@ First public test build. Expect rough edges; please report problems as GitHub is
 - Image-only scams need a vision-capable model (`MOD_AI_MODEL`).
 - Docs search is keyword based with AI rephrasing; it doesn't understand meaning the way embeddings would.
 - Follow-up memory is lost when the bot restarts.
+- The assistant can't browse the web, so it doesn't know recent news or prices.
 - The Docker image hasn't been built and tested yet.

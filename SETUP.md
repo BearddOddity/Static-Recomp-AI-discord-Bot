@@ -21,14 +21,14 @@ This takes about 20 minutes and no programming. You need:
 Paste this link into your browser, replacing `YOUR_APPLICATION_ID` with the number from step 1:
 
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&scope=bot+applications.commands&permissions=1374389660708
+https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&scope=bot+applications.commands&permissions=1374389660772
 ```
 
 Pick your server and click **Authorize**. This grants exactly the permissions the bot uses:
 
 | Permission | Why |
 | --- | --- |
-| View Channels, Read Message History, Send Messages (and in threads), Embed Links, Attach Files | Read chat, answer `/ask`, post case reports with evidence |
+| View Channels, Read Message History, Send Messages (and in threads), Embed Links, Attach Files, Add Reactions | Read chat, answer `/ask`, post case reports with evidence |
 | Manage Messages | Delete scam, piracy and rule-breaking messages when it warns someone |
 | Moderate Members | Time members out while a moderator reviews their case |
 | Ban Members | Ban, but **only** when a moderator presses Ban on a case |

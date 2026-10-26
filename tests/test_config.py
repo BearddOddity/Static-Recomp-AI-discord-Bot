@@ -49,7 +49,8 @@ def test_template_defaults_are_generic_and_delete_on_warning(monkeypatch):
     monkeypatch.setenv("AI_SYSTEM_PROMPT", "")  # "AI_SYSTEM_PROMPT=" in .env means the default
     settings = config.load_settings()
     assert settings.community_about == "video games"
-    assert settings.system_prompt == "You are a helpful assistant for a Discord community about video games."
+    assert settings.system_prompt == ""  # the built-in personality
+    assert settings.assistant_channel_ids == frozenset() and settings.ask_on_mention
     assert settings.docs_repos == ""
     assert settings.mod_action == settings.mod_piracy_action == settings.mod_rule_action == "delete"
     assert not settings.mod_severe_scam_review

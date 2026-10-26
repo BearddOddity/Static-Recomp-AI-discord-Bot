@@ -1,234 +1,198 @@
-# AI Discord Bot
+> [!IMPORTANT]
+> This bot never shares, hosts or helps find game files. Its anti-piracy filter removes them on sight.
+> Every recompilation project expects you to dump the games you own yourself.
 
-An open source Discord assistant and moderator for game communities. It answers questions from your community's GitHub docs and moderates scams, piracy and hate speech, including scams made only of screenshots. It works with Claude, free OpenRouter models, or a model on your own machine.
+<h1 align="center">
+  <img src="./docs/banner.png" alt="Static Recomp AI">
+  <a href="https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/releases">
+    <img src="https://img.shields.io/github/v/release/BearddOddity/Static-Recomp-AI-discord-Bot?include_prereleases&label=release" alt="Release">
+  </a>
+  <a href="https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/actions/workflows/tests.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/BearddOddity/Static-Recomp-AI-discord-Bot/tests.yml?branch=main&label=tests" alt="Tests">
+  </a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/discord.py-2.4%2B-5865F2?logo=discord&logoColor=white" alt="discord.py">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+  </a>
+</h1>
 
-**New here? Follow [SETUP.md](SETUP.md)**: a step-by-step guide from creating the bot to running it, no programming needed.
+# Static Recomp AI
 
-> AI coding assistants: read [AGENTS.md](AGENTS.md) before changing anything.
+Static Recomp AI is an open source Discord bot for the static recompilation community: an AI assistant and a moderator in one. As an assistant, it has a personality inspired by Tony Stark's J.A.R.V.I.S. It answers anything members ask, and it uses the docs of [xboxrecomp](https://github.com/sp00nznet/xboxrecomp), [ps3recomp](https://github.com/sp00nznet/ps3recomp) and [ReXGlue](https://github.com/rexglue/rexglue-sdk) as its reference. As a moderator, it catches scams (including scams made only of screenshots), piracy and hate speech. It warns members first and leaves every ban to a human. It runs on free AI models with nothing to host, on Claude, or on a model on your own machine.
 
-## Use it as a template
+> [!IMPORTANT]
+> This is an **alpha**. It hasn't been tested on a busy live server yet. Please report anything odd as a [GitHub issue](https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/issues).
 
-The code in `bot/` holds nothing specific to any one server. Everything about a particular community (its topic, docs repos and keywords) lives in a **server profile**, so you can start your own bot from this one:
+## Table of Contents
 
-1. Copy the repository: on GitHub, use **Use this template** (if the owner has turned on *Template repository* in Settings) or **Fork**, or download the ZIP.
-2. Delete the `servers/static-recomp/` folder. It's the profile for the community this bot was first built for, and isn't needed by the template.
-3. Set `COMMUNITY_ABOUT`, `DOCS_REPOS` and `DOCS_ROUTES` in `.env`, or make your own `servers/<name>/server.env` and point `SERVER_PROFILE` at it.
+- [Requirements](#requirements)
+- [How to Install](#how-to-install)
+- [Features](#features)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Use It as a Template](#use-it-as-a-template)
+- [Development](#development)
+- [Notes](#notes)
+- [Credits](#credits)
+- [License](#license)
 
-It's MIT licensed (see [LICENSE](LICENSE)): use it, change it and build on it, for any purpose. Keep the license notice.
+## Requirements
 
-### Built-in profile: Static Recomp
+- A Discord server where you have **admin** rights
+- A computer or server that stays on:
+  - Windows, macOS or Linux with **Python 3.10** or newer and **Git**
+  - or anything that runs **Docker**
+- An AI model, any one of these:
+  - **OpenRouter**, Groq or Gemini: free tiers, nothing to host
+  - **Claude**: paid, and the best at reading screenshots
+  - **Ollama** or a command-line AI tool: runs on your own hardware
 
-This repository also runs the Static Recomp community's bot. Its settings are in [`servers/static-recomp/`](servers/static-recomp/), and its owner turns them on with `SERVER_PROFILE=servers/static-recomp/server.env`.
+No AI runs on your computer unless you choose Ollama, so a Raspberry Pi or a small VPS is plenty.
 
-## Quickstart with OpenRouter (free, nothing to host)
+## How to Install
 
-1. Make an account at https://openrouter.ai and create a key at https://openrouter.ai/keys.
-2. Pick a free model at https://openrouter.ai/models?max_price=0. Free model IDs end in `:free`.
-3. In `.env`:
+The full step-by-step walkthrough is in **[SETUP.md](SETUP.md)**. It takes about 20 minutes and no programming.
 
-   ```
-   AI_PROVIDER=openrouter
-   OPENAI_COMPAT_API_KEY=sk-or-...
-   OPENAI_COMPAT_MODEL=<model id ending in :free>
-   ```
+1) Create the bot in the [Discord Developer Portal](https://discord.com/developers/applications) and turn on **Message Content Intent**.
 
-Free OpenRouter models have per-minute and daily request limits. Adding a small credit balance raises them. The bot sends `X-Title` (and `HTTP-Referer` when `OPENROUTER_SITE_URL` is set) so OpenRouter can credit your app.
+2) Invite it with the link in [SETUP.md](SETUP.md#2-invite-the-bot-to-your-server). The link grants exactly the permissions the bot needs and nothing more.
 
-## The assistant
+3) Download [the latest release](https://github.com/BearddOddity/Static-Recomp-AI-discord-Bot/releases) (or **Code → Download ZIP**) and unzip it somewhere permanent.
 
-The bot is a general AI assistant, not just a docs search. Its personality is inspired by Tony Stark's J.A.R.V.I.S.: calm, quick, precise, polite, with a dry wit, and it answers the question first, then offers what you'll probably need next. It helps with anything: your community's projects, programming and debugging, games, hardware, general knowledge, writing or just conversation. Your GitHub docs are its reference: it uses and cites them when they're relevant, and answers from its own knowledge when they aren't.
+4) Copy `.env.example` to `.env` and fill in your bot token, your AI key and your `#mod-log` channel ID. For the Static Recomp server, also add:
 
-- **Ask it:** `/ask`, mention it (`@Bot why does my build fail?`), or reply to one of its answers to follow up. It remembers the last few turns, so "and on Windows?" works.
-- **Assistant channels:** list channel IDs in `ASSISTANT_CHANNEL_IDS` and it answers every message there, like a chat window.
-- **It knows where it is:** who's asking, the server and channel, today's date, and the last few messages in the channel (`CHAT_CONTEXT_MESSAGES`), so "what do you think of Sam's idea?" makes sense to it.
-- **Screenshots:** attach an image (an error dialog, a crash log, a settings screen) and ask about it. This needs a model that accepts images.
-- **Its own rules still apply:** it follows the server's rules channel and the anti-piracy policy, and it says when it isn't sure instead of making things up. It can't browse the web.
-- **Personality:** set `AI_SYSTEM_PROMPT` to replace it. `{name}`, `{server}` and `{community}` are filled in.
+    ```
+    SERVER_PROFILE=servers/static-recomp/server.env
+    ```
 
-Long answers arrive in up to three messages instead of being cut off. `ASK_ON_MENTION=false` turns off mentions and replies (`/ask` and assistant channels still work).
+5) Start it:
+    - **Windows:** double-click `start.bat`
+    - **macOS / Linux:** run `./start.sh`
+    - **Docker:** run `docker compose up -d`
 
-## Answering from GitHub docs
+6) In Discord, run **`/status`**. It checks every setting and permission and tells you what to fix.
 
-List the repos to learn from in `DOCS_REPOS`, comma separated, as `owner/repo[@branch][:folder]`. Add `.wiki` to a repo name to read its GitHub wiki instead:
+> [!TIP]
+> No AI key yet? A free [OpenRouter](https://openrouter.ai/keys) key works. Pick any model whose ID ends in `:free`. Use one that accepts images for `MOD_AI_MODEL`, so screenshot scams are caught too.
 
-```
-DOCS_REPOS=owner/switch-tools,owner/switch-tools.wiki,owner/ps3-tools@main:docs
-```
+## Features
 
-Wikis are read with `git clone`, so `git` must be installed on the machine running the bot. A wiki's pages count as part of its repo for keyword routing.
+### AI Assistant
 
-### Keyword routing
+Ask it anything: your build fails, which controller works best, what an error means, or just how its day is going. It answers first, then offers the one thing you'll probably need next, with a dry wit and no fuss.
 
-When a question names a platform, `DOCS_ROUTES` makes the bot answer only from that project's docs, so a PS3 question never gets Switch instructions:
+- **Three ways to ask:** `/ask`, an **@mention**, or a **reply** to one of its answers to follow up. It remembers the last few exchanges.
+- **Assistant channels:** give it channels where it answers every message, like a chat window.
+- **Knows the room:** who's asking, which channel, today's date and the last few messages, so "what do you think of Sam's idea?" makes sense.
+- **Reads screenshots:** attach an error dialog or a crash and ask about it.
+- **Honest:** it says when it's unsure, follows your `#rules`, and never helps find game files.
 
-```
-DOCS_ROUTES=switch 2,switch2=owner/switch2-tools; switch=owner/switch-tools; ps3=owner/ps3-tools
-```
+### Docs Search
 
-Each rule is `keywords=owner/repo`, and rules are separated by `;`. Keywords match whole words and ignore case. Rules are checked in order, and a matched keyword is removed before later rules run. That is why "Switch 2" goes to the first repo and is not also counted as plain "Switch". A question naming two platforms searches both. A question with no keyword searches every repo. Each route's repo must also be listed in `DOCS_REPOS`.
+The bot downloads the GitHub docs and wikis you choose and cites them under its answers.
 
-At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, reStructuredText and text files from those repos and splits them into sections by heading. For each question, it finds the most relevant sections, gives them to the AI as reference, and links the source files under the answer. Questions that have nothing to do with the docs (small talk, other subjects) get no excerpts, so the AI answers freely. Server managers can run `/reload-docs` after updating the docs.
+Feature|What it does
+-|-
+Keyword routing|"Xbox" → xboxrecomp, "360" → ReXGlue, "PS3" → ps3recomp, so a PS3 question never gets Xbox instructions
+Section context|Each section knows the headings above it, such as *Installing › Linux*
+Forgiving matching|Word forms, common synonyms ("setup" and "install") and small typos all match
+AI rephrasing|When a question uses different words from the docs, the AI rewrites it into the docs' wording and searches again
+Code-safe|Code blocks are never cut in half
+Always loads|If GitHub's free hourly limit runs out, it downloads the repos with `git` instead
 
-**How the search finds the right section:**
+More in [docs/ASSISTANT.md](docs/ASSISTANT.md).
 
-- Each section knows the headings above it ("Installing > Linux"), so a short subsection is still found by its topic.
-- Sections are split at paragraph breaks, and code blocks are never cut in half.
-- Word forms match ("configured", "configuration"), and so do common synonyms ("setup" and "install", "crash" and "freeze") and small typos ("recompilr").
-- Words that appear side by side in the docs ("save files") rank higher, and no single file can fill every slot.
-- If the question's words barely match the docs, the AI first rephrases it into the words the docs use, then searches again (`DOCS_AI_QUERY=fallback`, the default). `always` does this for every question, for one extra AI call each; `off` never does.
+### Moderation
 
-- Without `GITHUB_TOKEN`, GitHub allows 60 API requests an hour, which a shared server can use up. When that happens, the bot reads public repos with `git clone` instead. A read-only fine-grained token raises the limit and allows private repos.
-- Only documentation files are read, not source code. Files over 200 KB, build files such as `CMakeLists.txt`, and folders like `third_party/`, `tests/` and `LICENSES/` are skipped.
+Free speech is the policy here: opinions, criticism, rudeness and profanity are never moderated. The bot steps in for these:
 
-## Moderation
+Catches|How
+-|-
+**Scams**|Known scam sites, lookalike domains (`dlscord-gift.com`), crypto-giveaway phrasing, cross-posting raids, and an AI that reads screenshot-only scams such as fake MrBeast casino posts
+**Piracy**|Game files of any kind (`.iso`, `.xex`, `.xbe`, `.elf`, ROMs, disc images, packages, keys), including inside `.zip` files, plus piracy sites and direct download links
+**Hate speech**|Discord AutoMod's Slurs filter and the AI. Profanity never counts
+**Rule breaks**|Whatever your `#rules` channel says, re-read whenever it changes
 
-The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams, piracy, hate speech and breaking your server's rules. Edited messages are checked again.
+YouTube, GitHub, GIFs and wikis (Fandom included) are always welcome, and so are most other links.
 
-**Free speech:** opinions, criticism, rudeness, profanity, dark humour and heated arguments are never flagged, even if your rules channel asks for civility. The only speech that gets moderated is **hate speech** (attacks on people for their race, religion, sexuality, gender identity, disability and similar, or threats of violence). Hate speech always times the member out until a moderator reviews the case. It's caught two ways: Discord's built-in **AutoMod Slurs filter** (free and instant, turn it on as described in [SETUP.md](SETUP.md)), and the AI when it reviews a message.
+### Warning Ladder
 
-**Links are welcome.** YouTube, GitHub, any GIF, and any wiki (Wikipedia, Fandom, wiki.gg, project wikis) are always safe, and every other link is fine too. A link only counts against someone if it's a known scam or piracy site, imitates a brand (`dlscord-gift.com`), or points straight at a game file. Links from brand-new accounts, or with odd signs like a shortener, get a quick AI second look, but are never flagged just for being a link.
+Step|What happens
+-|-
+**1st and 2nd warning**|The message is deleted, the member gets a DM, and moderators get a case report
+**3rd warning**|The member is timed out, and the case is handed to a human
+**Hate speech**|Straight to a timeout and a human review
+**Ban**|Only a moderator can ban, with a button and a confirm step. The bot never bans
 
-**Anti-piracy policy:** no links to pirated content, and no sharing game files of any kind. That covers console executables (`.elf`, `.xbe`, `.xex`, `.self`, `EBOOT.BIN`), disc images (`.iso`, `.bin`+`.cue`, `.chd`, `.cso`, `.rvz`, `.wbfs` and more), ROMs, console packages (`.pkg`, `.nsp`, `.xci`) and license keys. These are recognised by the rules, with no AI guesswork:
+### Case Reports
 
-- **game files attached** to a message, including ones hidden inside a `.zip`
-- **links to piracy sites** (list in `bot/moderation/data/piracy_domains.txt`, plus `MOD_PIRACY_DOMAINS`)
-- **direct links to game files** on file hosts or the Discord CDN (`…/Halo3.iso`); trusted sites such as GitHub releases are skipped
+Each case is a colour-coded card in your `#mod-log` channel. It shows a status line that says whether anyone needs to act, the quoted message, a warning meter, the reasons and the AI's confidence. Images are attached as spoilered evidence. The buttons let a moderator **Ban**, **Lift the timeout** or mark the case **Not a violation**.
 
-Those messages are **always deleted**, and the member gets a warning on the normal ladder. Piracy is often a newcomer who didn't know, so it's 3 warnings before a timeout pending review, and bans stay with moderators. Things the AI only suspects, such as someone asking where to find an ISO, are deleted too unless `MOD_PIRACY_ACTION=flag`. Talking about files is fine: "my default.xex crashes on startup" or "how do I dump my own disc?" are never flagged. `/ask` refuses to help find game files and points people to dumping their own.
+<p align="center">
+  <img src="./docs/case-report.png" alt="A case report in #mod-log" width="560">
+</p>
 
-Detection works in two layers:
+More in [docs/MODERATION.md](docs/MODERATION.md), including [every case state](docs/case-reports.png).
 
-1. **Built-in rules (free and instant).** These look for:
-   - known scam domains, such as the fake MrBeast casino `kegwin.com`
-   - lookalike domains (`dlscord-gift.com`, `steamcommunlty.com`), link shorteners, punycode and raw-IP links
-   - scam phrasing: crypto giveaways, promo codes, "withdrawal success", free Nitro or Steam gifts, "I accidentally reported you", "DM me to earn", fake urgency, `@everyone`
-   - new accounts posting links, and the same message posted in 3+ channels within 2 minutes
-2. **AI check (text and images).** When a post looks risky, or has 2+ images, the bot sends the text and images to the AI. That catches screenshot-only scams like those in [`examples/scam/`](examples/scam): a fake verified celebrity post, a casino bonus code page, a "Withdrawal Success" popup and a wallet receipt. The same images posted again reuse the first answer, with no second AI call.
+## Commands
 
-### Warnings, timeouts and bans
+Command|Who|What it does
+-|-|-
+`/ask`|Everyone|Ask the assistant anything
+`@bot …`|Everyone|Same as `/ask`; reply to its answer to follow up
+`/warn`|Moderators|Warn a member by hand (it counts toward the 3)
+`/warnings`|Moderators|A member's warnings and recent cases
+`/status`|Admins|Check the bot's setup, permissions and AI
+`/reload-docs`|Admins|Download the GitHub docs again
 
-The bot warns first and never bans by itself:
+## Configuration
 
-1. **Warning.** Each violation (a scam, piracy, a broken rule) **deletes the message**, opens a **case report** for moderators with a copy of the message and its images, and gives the member a warning by DM (warning 1 of 3, and so on).
-2. **Timeout until reviewed.** The **3rd warning** (`MOD_WARN_LIMIT`) times the member out and hands the case to a human. **Hate speech** goes straight here on the first offence. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides. Optionally, `MOD_SEVERE_SCAM_REVIEW=true` sends near-certain scams (usually hacked accounts) here on the first offence too.
-3. **Ban.** Only a moderator can ban, using the button on the case report, and the bot asks them to confirm first.
+Every setting lives in `.env`, and [`.env.example`](.env.example) explains each one. The ones most people change:
 
-Warnings expire after `MOD_WARN_EXPIRY_DAYS` (90 by default). Moderators can also use `/warn @member reason` (it counts toward the same limit) and `/warnings @member` to see someone's record. Admins can run `/status` to check the bot's setup.
+Setting|Default|What it does
+-|-|-
+`AI_PROVIDER`|`openrouter`|Which AI to use ([all providers](docs/AI-PROVIDERS.md))
+`MOD_AI_MODEL`||A separate image-capable model for moderation
+`MOD_LOG_CHANNEL_ID`||Where case reports go
+`ASSISTANT_CHANNEL_IDS`||Channels where the bot answers every message
+`MOD_WARN_LIMIT`|`3`|The warning that times a member out
+`MOD_ACTION`|`delete`|`flag` leaves messages up for a moderator to judge
+`MOD_AI_SCAN`|`suspicious`|`all` checks every message against your rules, for one AI call each
+`DOCS_AI_QUERY`|`fallback`|When the AI rephrases questions before searching the docs
 
-If a member breaks several rules in a short time, for example a hacked account cross-posting a scam to five channels, everything goes into **one case**. That case escalates, and moderators don't get flooded with reports.
+## Use It as a Template
 
-### Case reports
+The code in `bot/` contains nothing specific to any one server. A community's topic, docs repos and keywords live in a **server profile**, so you can build your own bot from this one:
 
-Each case is posted to `MOD_LOG_CHANNEL_ID` as a colour-coded card: a status line saying whether anyone needs to act, the member's name and avatar, the message quoted, a warning meter (🟧🟧⬜ 2 of 3), why it was flagged, how sure the AI was, the links (not clickable), a numbered timeline of what happened, and the images as spoilered evidence. When a moderator decides, the card turns grey and shows who decided and when. [See what they look like](docs/case-reports.png) (rendered from the bot's own code). It has buttons:
+1) Click **Use this template** or **Fork**, or download the ZIP.
+2) Delete `servers/static-recomp/`.
+3) Set `COMMUNITY_ABOUT`, `DOCS_REPOS` and `DOCS_ROUTES` in `.env`, or write your own `servers/<name>/server.env`.
 
-| Button | What it does | Who can use it |
-| --- | --- | --- |
-| **Ban** | Asks to confirm, then bans and removes their messages from the last 24 hours | Ban Members |
-| **Timeout until reviewed** | Times the member out until someone decides | Moderate Members |
-| **Lift timeout, keep warning** | Ends the timeout and closes the case; the warning still counts | Moderate Members |
-| **Not a violation** | Removes the warning, lifts any timeout and closes the case | Moderate Members |
-| **Delete message** | Deletes the flagged message | Manage Messages |
+## Development
 
-The report updates to show who decided what. Buttons keep working after the bot restarts, because cases are stored in SQLite at `MOD_DB_PATH`.
+[Running from source, tests and the code layout are here](docs/DEVELOPMENT.md). AI coding assistants should read [AGENTS.md](AGENTS.md) first: it covers the rules the bot must keep, such as no automatic bans and free speech.
 
-Flagged messages are deleted right away and kept in the report. To leave them up for a moderator to judge instead, set `MOD_ACTION=flag` (and `MOD_PIRACY_ACTION`, `MOD_RULE_ACTION`, `MOD_HATE_ACTION`); the report then has a **Delete message** button.
+## Notes
 
-### Following your rules channel
+Static Recomp AI was built for a community of people who reverse-engineer and recompile console games, so it takes piracy seriously and treats its members' time with respect. A false alarm costs a real member, so detection is cautious: every warning can be undone with one click, and every ban is a human's call.
 
-The bot reads your rules channel (`RULES_CHANNEL_ID`, otherwise the server's Community rules channel, otherwise the first channel with "rules" in its name). It reads plain messages and embeds, and re-reads them whenever a message there is posted, edited or deleted. The rules are then used:
+Cases and warnings stay in a local SQLite file on your machine. Messages go to your AI provider only when someone asks the bot something, or when a message looks risky enough to need a second look (or every message, if you set `MOD_AI_SCAN=all`).
 
-- **in moderation:** the AI is told to enforce them, and a clear break becomes a "Rule violation" case quoting the rule.
-- **in `/ask`:** answers follow the rules, for example declining to help find pirated game files.
+## Credits
 
-In the default `MOD_AI_SCAN=suspicious` mode, the AI only sees posts that already look risky, so it mainly catches scams and piracy. To have every message checked against every rule, use `MOD_AI_SCAN=all`. That costs one AI call per message.
+### Docs the assistant learns from
+* **[xboxrecomp](https://github.com/sp00nznet/xboxrecomp)** and **[ps3recomp](https://github.com/sp00nznet/ps3recomp)** by sp00nznet
+* **[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)** and [its wiki](https://github.com/rexglue/rexglue-sdk/wiki), the toolchain behind many Xbox 360 recompilations
 
-**Image scams need a model that can see images.** Claude models can. On OpenRouter, pick a model whose input includes images, and set it as `MOD_AI_MODEL` if your `/ask` model is text-only. Without one, the bot judges only the text and links, and image-only scams get through.
+### Built with
+* **[discord.py](https://github.com/Rapptz/discord.py)**: the Discord library
+* **[httpx](https://github.com/encode/httpx)** and **[python-dotenv](https://github.com/theskumar/python-dotenv)**
+* **[OpenRouter](https://openrouter.ai)**, **[Anthropic](https://www.anthropic.com)**, **[Ollama](https://ollama.com)** and every provider that keeps free and open models available
 
-**Bot permissions needed:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History (including in the rules channel), **Manage Messages**, **Moderate Members**, **Ban Members** and **Manage Server** (to see AutoMod). The invite link in [SETUP.md](SETUP.md) grants exactly these. The bot's role must be above the roles of the members it moderates, or Discord will refuse its timeouts and bans.
+### Inspiration
+* **J.A.R.V.I.S.** from Marvel's *Iron Man*, for the assistant's manners. This is a fan nod; the project isn't affiliated with Marvel.
 
-**Test without Discord:**
+## License
 
-```bash
-python -m bot.moderation.check examples/scam/*.webp           # uses your AI settings
-python -m bot.moderation.check --text "free nitro at dlscord-gift.com"
-python -m bot.moderation.check --rules-only --text "..."       # no AI key needed
-```
-
-To block a new scam site for everyone, add it to `bot/moderation/data/blocked_domains.txt`. For just your server, add it to `MOD_BLOCKED_DOMAINS`. Piracy sites work the same way with `piracy_domains.txt` and `MOD_PIRACY_DOMAINS`.
-
-## Choosing an AI backend
-
-Set `AI_PROVIDER` in `.env`. You never need to run a model server for the hosted options.
-
-| `AI_PROVIDER` | What it is | Cost | Set up |
-| --- | --- | --- | --- |
-| `anthropic` | Claude via the Anthropic API | Paid | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
-| `openrouter` | Many models, including free `:free` ones | Free tier | `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_MODEL` |
-| `groq` | Fast hosted open models | Free tier | `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_MODEL` |
-| `gemini` | Google Gemini | Free tier | `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_MODEL` |
-| `openai_compatible` | Any other OpenAI-compatible endpoint | Varies | Also `OPENAI_COMPAT_BASE_URL` |
-| `ollama` | A model on the bot's own machine | Free, needs hardware | `OLLAMA_HOST`, `OLLAMA_MODEL` |
-| `cli` | A command-line AI tool (Kilo, OpenCode, etc.) | Depends on the tool | `AI_CLI_COMMAND` |
-
-Free tiers have rate and daily limits, and the list of free models changes over time. Check each provider's current pricing page before relying on one.
-
-For `cli`, the bot runs `AI_CLI_COMMAND` without a shell. It writes the conversation to stdin and reads the reply from stdout. Quote any arguments that contain spaces. Test the command in a terminal first.
-
-> **Warning for `cli`:** coding agents such as Kilo or OpenCode can read files and run commands. With `cli`, anyone in your server can send that agent a prompt. Run it in a non-interactive, read-only mode, ideally in a sandbox or container. Never run it in a folder that holds secrets.
-
-## Setup
-
-Requires Python 3.10 or newer.
-
-1. Create a Discord application and bot at https://discord.com/developers/applications. Copy the bot token. Under **Bot**, turn on **Message Content Intent**, or the bot will fail to log in. Invite the bot with the `bot` and `applications.commands` scopes.
-2. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN` and your chosen provider.
-3. Install and run:
-
-   ```bash
-   python -m venv .venv
-   . .venv/bin/activate        # Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   python -m bot.main
-   ```
-
-4. In Discord, run `/ask question:...`.
-
-Set `DISCORD_GUILD_ID` to your server ID while testing so commands update right away.
-
-## Tests
-
-```bash
-pip install -r requirements-dev.txt
-ruff check bot tests
-pytest
-```
-
-The tests use mocked HTTP and Discord objects, so they need no API keys or network. GitHub runs them on every push (`.github/workflows/tests.yml`).
-
-## Layout
-
-```
-bot/
-  main.py            Discord client, /ask, /reload-docs, /warn, /warnings, /status, events
-  assist.py          Finding doc excerpts, follow-up memory, splitting long answers
-  config.py          Reads settings from the environment, .env and SERVER_PROFILE
-  docs/
-    github.py        Downloads doc files from GitHub repos and wikis
-    routing.py       Keyword routing (DOCS_ROUTES)
-  moderation/        Scam and piracy detection (see AGENTS.md for how it decides)
-    index.py         Splits docs into sections and searches them (BM25)
-  ai/
-    base.py          AIProvider interface and Message type
-    anthropic_provider.py
-    openai_compat.py   OpenRouter, Groq, Gemini and any OpenAI-compatible API
-    ollama.py
-    cli.py
-    __init__.py      build_provider() picks one from AI_PROVIDER
-tests/
-servers/static-recomp/  One community's profile (delete it in your own copy)
-examples/scam/       Real scam screenshots for tests and manual checks
-start.sh, start.bat  One-click start (sets up Python on first run)
-Dockerfile, docker-compose.yml
-```
-
-Adding a backend means writing one class with `async complete(messages) -> str` and a branch in `bot/ai/__init__.py`.
+MIT. See [LICENSE](LICENSE). Use it, change it and build on it.

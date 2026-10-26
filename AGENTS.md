@@ -53,6 +53,7 @@ bot/
     cases.py             SQLite store: cases, warnings, saved #rules text
     review.py            CaseManager: opens cases, DMs warnings, case report embeds + buttons
     rules.py             RulesBook: reads #rules (text + embeds), refreshed on every change
+docs/                    ASSISTANT.md, MODERATION.md, AI-PROVIDERS.md, DEVELOPMENT.md: the detail behind the README
 SETUP.md                 Step-by-step install guide for server owners. Keep it in sync with settings
 start.sh, start.bat      First-run setup + start;  Dockerfile, docker-compose.yml for servers
     discord_glue.py      Discord message -> Post, exemptions
@@ -79,11 +80,11 @@ When tuning weights, keep a single weak signal below the AI threshold, and keep 
 
 - **New scam domain:** add it to `bot/moderation/data/blocked_domains.txt` with a comment saying where it was seen.
 - **New scam style:** add a `(regex, reason, weight)` to `bot/moderation/text.py`, describe it in the classifier prompt in `classifier.py`, and add a test case. If you have screenshots, add them to `examples/scam/` (strip personal info first) and to the tests.
-- **New AI provider:** subclass `AIProvider`, set `supports_images`, add a branch in `bot/ai/__init__.py`, add it to `PROVIDERS` and `REQUIRED_BY_PROVIDER` in `config.py`, document it in the README table, and add a mocked test.
+- **New AI provider:** subclass `AIProvider`, set `supports_images`, add a branch in `bot/ai/__init__.py`, add it to `PROVIDERS` and `REQUIRED_BY_PROVIDER` in `config.py`, document it in the table in `docs/AI-PROVIDERS.md`, and add a mocked test.
 - **New docs source:** add it to the server's profile `DOCS_REPOS` (use `owner/repo.wiki` for wikis), and add a `DOCS_ROUTES` keyword if it belongs to one platform. Never hard-code it in `bot/`.
 - **Case report look:** `build_embed()` in `review.py`. Keep the status line first (it tells moderators whether to act), keep links in code formatting so they can't be clicked, and stay under Discord's embed limits (1024 per field, 6000 total).
 - **Releasing:** bump `__version__` in `bot/__init__.py` and `version` in `pyproject.toml`, add a CHANGELOG entry, tag `vX.Y.Z[-alpha|-beta]`.
-- **New setting:** add it to `Settings` and `load_settings()` in `config.py`, to `.env.example`, and to the README (and SETUP.md if a server owner must set it).
+- **New setting:** add it to `Settings` and `load_settings()` in `config.py`, to `.env.example`, and to the matching page in `docs/` (plus the README's Configuration table if most owners will change it, and SETUP.md if they must set it).
 - **New permission:** add it to `REQUIRED_PERMISSIONS` in `main.py`, then update the invite link number and the table in SETUP.md (`python -c "import bot.main as m; print(m.REQUIRED_PERMISSIONS.value)"`).
 
 ## Ideas for future work

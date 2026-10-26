@@ -48,7 +48,7 @@ At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, 
 
 ## Moderation
 
-The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams and piracy. It works in two layers:
+The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams, piracy and breaking your server's rules. It works in two layers:
 
 1. **Built-in rules (free and instant).** These look for:
    - known scam domains, such as the fake MrBeast casino `kegwin.com`
@@ -57,11 +57,44 @@ The bot checks every message from members (anyone with **Manage Messages** is sk
    - new accounts posting links, and the same message posted in 3+ channels within 2 minutes
 2. **AI check (text and images).** When a post looks risky, or has 2+ images, the bot sends the text and images to the AI. That catches screenshot-only scams like those in [`examples/scam/`](examples/scam): a fake verified celebrity post, a casino bonus code page, a "Withdrawal Success" popup and a wallet receipt. The same images posted again reuse the first answer, with no second AI call.
 
-Each flagged post is reported to `MOD_LOG_CHANNEL_ID` with the reasons, the links and the images. Start with `MOD_ACTION=flag`, watch the reports for a while, then switch to `delete` (and optionally `MOD_TIMEOUT_MINUTES`) once you trust them.
+### Warnings, timeouts and bans
+
+The bot warns first and never bans by itself:
+
+1. **Warning.** Each violation opens a **case** and gives the member a warning, which they get by DM (warning 1 of 3, and so on).
+2. **Timeout until reviewed.** At `MOD_WARN_LIMIT` active warnings (3 by default), the member is timed out until a moderator looks at the case. A near-certain scam (a known scam site, or the AI at least 90% sure) goes straight here on the first offence, because those usually come from hacked accounts. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides.
+3. **Ban.** Only a moderator can ban, using the button on the case report, and the bot asks them to confirm first.
+
+Warnings expire after `MOD_WARN_EXPIRY_DAYS` (90 by default). Moderators can also use `/warn @member reason` (it counts toward the same limit) and `/warnings @member` to see someone's record.
+
+### Case reports
+
+Each case is posted to `MOD_LOG_CHANNEL_ID` with the message, the reasons, the links and the images as evidence. It has buttons:
+
+| Button | What it does | Who can use it |
+| --- | --- | --- |
+| **Ban** | Asks to confirm, then bans and removes their messages from the last 24 hours | Ban Members |
+| **Timeout until reviewed** | Times the member out until someone decides | Moderate Members |
+| **Lift timeout, keep warning** | Ends the timeout and closes the case; the warning still counts | Moderate Members |
+| **Not a violation** | Removes the warning, lifts any timeout and closes the case | Moderate Members |
+| **Delete message** | Deletes the flagged message | Manage Messages |
+
+The report updates to show who decided what. Buttons keep working after the bot restarts, because cases are stored in SQLite at `MOD_DB_PATH`.
+
+By default the flagged message stays up (`MOD_ACTION=flag`) and moderators delete it from the report. Once you trust the results, set `MOD_ACTION=delete` so scams disappear immediately.
+
+### Following your rules channel
+
+The bot reads your rules channel (`RULES_CHANNEL_ID`, otherwise the server's Community rules channel, otherwise the first channel with "rules" in its name). It reads plain messages and embeds, and re-reads them whenever a message there is posted, edited or deleted. The rules are then used:
+
+- **in moderation:** the AI is told to enforce them, and a clear break becomes a "Rule violation" case quoting the rule.
+- **in `/ask`:** answers follow the rules, for example declining to help find pirated game files.
+
+In the default `MOD_AI_SCAN=suspicious` mode, the AI only sees posts that already look risky, so it mainly catches scams and piracy. To have every message checked against every rule, use `MOD_AI_SCAN=all`. That costs one AI call per message.
 
 **Image scams need a model that can see images.** Claude models can. On OpenRouter, pick a model whose input includes images, and set it as `MOD_AI_MODEL` if your `/ask` model is text-only. Without one, the bot judges only the text and links, and image-only scams get through.
 
-**Bot permissions needed:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History, plus **Manage Messages** to delete and **Moderate Members** to time out.
+**Bot permissions needed:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History (including in the rules channel), **Manage Messages**, **Moderate Members** and **Ban Members**. The bot's role must be above the roles of the members it moderates, or Discord will refuse its timeouts and bans.
 
 **Test without Discord:**
 
@@ -124,7 +157,7 @@ The provider tests use mocked HTTP responses, so they need no API keys.
 
 ```
 bot/
-  main.py            Discord client, /ask, /reload-docs, moderation hook
+  main.py            Discord client, /ask, /reload-docs, /warn, /warnings, events
   config.py          Reads settings from the environment
   docs/
     github.py        Downloads doc files from GitHub repos and wikis

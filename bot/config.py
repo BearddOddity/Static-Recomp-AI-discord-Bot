@@ -48,7 +48,14 @@ class Settings:
     mod_log_channel_id: int | None
     mod_action: str  # "flag" or "delete", for scams
     mod_piracy_action: str  # "flag" or "delete"
-    mod_timeout_minutes: int
+    mod_rule_action: str  # "flag" or "delete", for #rules violations
+    mod_warn_limit: int
+    mod_warn_expiry_days: float
+    mod_severe_confidence: float
+    mod_severe_scam_review: bool
+    mod_dm_warnings: bool
+    mod_db_path: str
+    rules_channel_id: int | None
     mod_ai_scan: str  # "off", "suspicious" or "all"
     mod_ai_model: str
     mod_min_confidence: float
@@ -86,6 +93,11 @@ def _choice(name: str, default: str, options: tuple[str, ...]) -> str:
 
 def _set(name: str) -> frozenset[str]:
     return frozenset(p.strip().lower() for p in os.getenv(name, "").split(",") if p.strip())
+
+
+def _flag(name: str, default: bool) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    return default if not value else value not in ("0", "false", "no", "off")
 
 
 def _optional_int(name: str) -> int | None:
@@ -133,11 +145,18 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         github_token=os.getenv("GITHUB_TOKEN", ""),
         docs_refresh_minutes=float(os.getenv("DOCS_REFRESH_MINUTES", "360")),
         docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),
-        mod_enabled=os.getenv("MOD_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off"),
+        mod_enabled=_flag("MOD_ENABLED", True),
         mod_log_channel_id=_optional_int("MOD_LOG_CHANNEL_ID"),
         mod_action=_choice("MOD_ACTION", "flag", ("flag", "delete")),
         mod_piracy_action=_choice("MOD_PIRACY_ACTION", "flag", ("flag", "delete")),
-        mod_timeout_minutes=int(os.getenv("MOD_TIMEOUT_MINUTES", "0") or 0),
+        mod_rule_action=_choice("MOD_RULE_ACTION", "flag", ("flag", "delete")),
+        mod_warn_limit=max(1, int(os.getenv("MOD_WARN_LIMIT", "3"))),
+        mod_warn_expiry_days=float(os.getenv("MOD_WARN_EXPIRY_DAYS", "90")),
+        mod_severe_confidence=float(os.getenv("MOD_SEVERE_CONFIDENCE", "0.9")),
+        mod_severe_scam_review=_flag("MOD_SEVERE_SCAM_REVIEW", True),
+        mod_dm_warnings=_flag("MOD_DM_WARNINGS", True),
+        mod_db_path=os.getenv("MOD_DB_PATH", "data/moderation.sqlite3"),
+        rules_channel_id=_optional_int("RULES_CHANNEL_ID"),
         mod_ai_scan=_choice("MOD_AI_SCAN", "suspicious", ("off", "suspicious", "all")),
         mod_ai_model=os.getenv("MOD_AI_MODEL", "").strip(),
         mod_min_confidence=float(os.getenv("MOD_MIN_CONFIDENCE", "0.75")),

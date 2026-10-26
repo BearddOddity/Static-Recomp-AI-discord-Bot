@@ -32,12 +32,13 @@ class Post:
     attachment_count: int = 0
     account_age_days: float | None = None
     member_age_hours: float | None = None
+    rules: str = ""  # the server's #rules text, if known
     created_at: float = field(default_factory=time.monotonic)
 
 
 @dataclass(frozen=True)
 class Verdict:
-    label: str  # "ok", "scam" or "piracy"
+    label: str  # "ok", "scam", "piracy" or "rule_violation"
     confidence: float
     reasons: tuple[str, ...]
     source: str  # "rules", "ai" or "cache"
@@ -90,12 +91,13 @@ class Moderator:
                 return Verdict("scam", score / 100, rule_reasons, "rules", score, tuple(urls))
             return OK
 
-        key = self._content_key(post)
+        # Rules are part of the key: a verdict made under old rules may no longer hold.
+        key = self._content_key(post) + hashlib.sha256(post.rules.encode()).hexdigest()[:16]
         source = "cache"
         ai = self._cache.get(key)
         if ai is None:
             source = "ai"
-            ai = await self.classifier.classify(post.text, post.images, urls, signals)
+            ai = await self.classifier.classify(post.text, post.images, urls, signals, post.rules)
             if ai is not None:
                 self._remember(key, ai)
 

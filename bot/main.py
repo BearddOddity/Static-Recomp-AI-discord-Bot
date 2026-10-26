@@ -9,12 +9,17 @@ from .ai import AIProvider, Message, build_provider
 from .config import Settings, load_settings
 from .docs import Chunk, DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
 from .moderation import Classifier, LinkChecker, Moderator
-from .moderation.discord_glue import enforce, is_exempt, to_post
+from .moderation.cases import CaseStore
+from .moderation.discord_glue import is_exempt, to_post
+from .moderation.review import PREFIX as CASE_PREFIX
+from .moderation.review import CaseManager
+from .moderation.rules import RulesBook
 
 log = logging.getLogger("bot")
 
 DISCORD_MESSAGE_LIMIT = 2000
 MAX_SOURCES_SHOWN = 3
+RENEW_TIMEOUTS_EVERY_SECONDS = 6 * 3600
 
 DOCS_INSTRUCTIONS = (
     "Below are excerpts from this community's documentation on GitHub. Use them to answer "
@@ -44,6 +49,12 @@ class AssistantBot(discord.Client):
         self.docs_fetcher = GitHubDocsFetcher(token=settings.github_token)
         self._docs_task: asyncio.Task | None = None
 
+        # Cases, warnings and the #rules copy live in SQLite and survive restarts.
+        self.store = CaseStore(settings.mod_db_path)
+        self.rules = RulesBook(self.store, settings.rules_channel_id)
+        self.cases = CaseManager(self, self.store, settings)
+        self._renew_task: asyncio.Task | None = None
+
         self.moderator: Moderator | None = None
         self._mod_ai: AIProvider | None = None
         if settings.mod_enabled:
@@ -63,10 +74,13 @@ class AssistantBot(discord.Client):
         self.tree.error(on_command_error)
         self.tree.add_command(ask)
         self.tree.add_command(reload_docs)
+        self.tree.add_command(warn)
+        self.tree.add_command(warnings)
 
     async def setup_hook(self) -> None:
         if self.docs_specs:
             self._docs_task = asyncio.create_task(self._refresh_docs_forever())
+        self._renew_task = asyncio.create_task(self._renew_timeouts_forever())
 
         # Guild sync shows commands at once; global sync can take an hour to appear.
         if self.settings.discord_guild_id:
@@ -94,36 +108,90 @@ class AssistantBot(discord.Client):
                 return
             await asyncio.sleep(self.settings.docs_refresh_minutes * 60)
 
+    async def _renew_timeouts_forever(self) -> None:
+        await self.wait_until_ready()
+        while True:
+            try:
+                renewed = await self.cases.renew_review_timeouts()
+                if renewed:
+                    log.info("Renewed %d review timeouts", renewed)
+            except Exception:
+                log.exception("Renewing review timeouts failed")
+            await asyncio.sleep(RENEW_TIMEOUTS_EVERY_SECONDS)
+
     async def on_ready(self) -> None:
         log.info("Logged in as %s using AI provider %s", self.user, self.ai.name)
+        if not self.settings.mod_log_channel_id:
+            log.warning("MOD_LOG_CHANNEL_ID is not set: cases are saved but moderators get no reports or buttons")
+        for guild in self.guilds:
+            await self.rules.refresh(guild)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        await self.rules.refresh(guild)
+
+    # The rules are re-read whenever anything in the rules channel changes.
+    async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
+        await self._rules_changed(payload.guild_id, payload.channel_id)
+
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        await self._rules_changed(payload.guild_id, payload.channel_id)
+
+    async def _rules_changed(self, guild_id: int | None, channel_id: int) -> None:
+        guild = self.get_guild(guild_id) if guild_id else None
+        if self.rules.is_rules_channel(guild, channel_id):
+            await self.rules.refresh(guild)
 
     async def on_message(self, message: discord.Message) -> None:
+        if self.rules.is_rules_channel(message.guild, message.channel.id):
+            await self.rules.refresh(message.guild)
+            return
         if not self.moderator or is_exempt(message, self.settings):
             return
         try:
-            post = await to_post(message)
+            post = await to_post(message, rules=self.rules.get(message.guild.id))
             verdict = await self.moderator.review(post)
             if verdict.flagged:
-                await enforce(message, post, verdict, self.settings)
+                await self.cases.open_from_message(message, post, verdict)
         except Exception:
             log.exception("Moderation failed for message %s", message.id)
 
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        # Case report buttons. Slash commands are handled by the command tree.
+        if interaction.type == discord.InteractionType.component:
+            custom_id = (interaction.data or {}).get("custom_id", "")
+            if custom_id.startswith(CASE_PREFIX + ":"):
+                try:
+                    await self.cases.handle_button(interaction)
+                except Exception:
+                    log.exception("Case button %s failed", custom_id)
+
     async def close(self) -> None:
-        if self._docs_task:
-            self._docs_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._docs_task
+        for task in (self._docs_task, self._renew_task):
+            if task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         await self.docs_fetcher.aclose()
         if self._mod_ai and self._mod_ai is not self.ai:
             await self._mod_ai.aclose()
         await self.ai.aclose()
+        self.store.close()
         await super().close()
 
 
 def build_messages(
-    system_prompt: str, question: str, excerpts: list[Chunk], topic_repos: list[str] = ()
+    system_prompt: str, question: str, excerpts: list[Chunk], topic_repos: list[str] = (), rules: str = ""
 ) -> list[Message]:
     messages = [Message("system", system_prompt)]
+    if rules.strip():
+        messages.append(
+            Message(
+                "system",
+                "Follow this server's rules (from its rules channel) in everything you say. If a "
+                "question asks for something they forbid, such as pirated game files, politely "
+                f"decline and point to the rule.\n<<<\n{rules}\n>>>",
+            )
+        )
     if topic_repos:
         messages.append(
             Message(
@@ -187,7 +255,10 @@ async def ask(interaction: discord.Interaction, question: str) -> None:
     )
     try:
         answer = await bot.ai.complete(
-            build_messages(bot.settings.system_prompt, question, excerpts, topic_repos)
+            build_messages(
+                bot.settings.system_prompt, question, excerpts, topic_repos,
+                rules=bot.rules.get(interaction.guild_id),
+            )
         )
     except Exception:
         log.exception("AI request failed")
@@ -212,6 +283,44 @@ async def reload_docs(interaction: discord.Interaction) -> None:
         f"{', '.join(s.full_name for s in bot.docs_specs)}.",
         ephemeral=True,
     )
+
+
+@app_commands.command(name="warn", description="Warn a member (counts toward a timeout pending review)")
+@app_commands.describe(member="Who to warn", reason="Why. The member sees this in a DM.")
+@app_commands.default_permissions(moderate_members=True)
+@app_commands.guild_only()
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: str) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    if member.bot or member.guild_permissions.manage_messages:
+        await interaction.response.send_message("Bots and moderators can't be warned.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    case = await bot.cases.open_manual(interaction.guild, member, interaction.user, reason)
+    count = bot.cases.warning_count(interaction.guild.id, member.id)
+    note = " They are now timed out until a moderator reviews the case." if case.status == "review" else ""
+    await interaction.followup.send(
+        f"Warned {member.mention} (case #{case.id}, {count}/{bot.settings.mod_warn_limit} warnings).{note}",
+        ephemeral=True,
+    )
+
+
+@app_commands.command(name="warnings", description="Show a member's warnings and recent cases")
+@app_commands.describe(member="Whose record to show")
+@app_commands.default_permissions(moderate_members=True)
+@app_commands.guild_only()
+async def warnings(interaction: discord.Interaction, member: discord.Member) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    active = bot.store.active_warnings(interaction.guild.id, member.id, bot.settings.mod_warn_expiry_days)
+    cases = bot.store.cases_for_user(interaction.guild.id, member.id)
+    lines = [f"**{member}** has {len(active)}/{bot.settings.mod_warn_limit} active warnings."]
+    lines += [f"• <t:{int(w.created_at)}:d> case #{w.case_id}: {w.reason}" for w in active]
+    if cases:
+        lines.append("\n**Recent cases**")
+        lines += [
+            f"• #{c.id} {c.label}: {c.status if c.is_open else c.decision} (<t:{int(c.created_at)}:R>)"
+            for c in cases
+        ]
+    await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
 
 
 def main() -> None:

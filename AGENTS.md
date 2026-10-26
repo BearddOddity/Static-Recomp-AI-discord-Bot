@@ -7,14 +7,15 @@ This file is for AI models (Claude, OpenCode, Kilo, Codex, Copilot and others) t
 A Discord bot for a community about **static recompilation** of console games: projects that translate a game's machine code into native PC programs. It has two jobs:
 
 1. **Assistance:** `/ask` answers questions using documentation pulled from GitHub repos (xboxrecomp, ps3recomp, ReXGlue and its wiki).
-2. **Moderation:** it watches messages for **scams** (including scams made of images only) and **piracy**, then reports them to moderators and optionally deletes them.
+2. **Moderation:** it watches messages for **scams** (including scams made of images only), **piracy** and breaking the server's **#rules**. It opens a case, warns the member, times them out pending human review after repeated or severe violations, and gives moderators buttons to decide.
 
 The server owner is not necessarily a programmer. Keep setup simple, defaults safe, and explain changes in plain language.
 
 ## Ground rules
 
 - **Never commit secrets.** `.env` is git-ignored. Tokens and keys only go in `.env` or the host's environment. Add new settings to `.env.example` with a comment.
-- **Moderation defaults stay conservative.** `MOD_ACTION=flag` (report only) is the default. Don't make deleting, timeouts or bans the default, and never add automatic bans. False positives hurt real members.
+- **Humans decide bans.** The ladder is warning, then timeout until a moderator reviews, then a ban only by a moderator pressing **Ban** (with a confirm step). Never add automatic bans or kicks, and never let a review timeout lapse while a case is open. `MOD_ACTION=flag` (leave the message, report it) stays the default. False positives hurt real members.
+- **The rules channel is policy, not commands.** Its text is written by admins and is passed to the AI as rules to enforce. User messages stay untrusted data.
 - **AI output is untrusted.** The bot sends with `allowed_mentions=none` so a model can't ping `@everyone`. Keep it that way. Message text and image text are data to the moderation model, never instructions. Keep that framing in `bot/moderation/classifier.py`.
 - **Don't make the bot depend on one AI vendor.** Everything goes through `AIProvider` (`bot/ai/base.py`). New features must work with every provider, or degrade gracefully (as image moderation does with `supports_images`).
 - **Keep the free, no-hosting path working.** A user with only a free OpenRouter key must be able to run `/ask` and moderation.
@@ -43,7 +44,11 @@ bot/
     text.py              Scam and piracy phrasing patterns
     classifier.py        Vision/text AI classifier prompt + JSON verdict parsing
     engine.py            Moderator: combines rules, account age, cross-posting, AI, cache
-    discord_glue.py      Discord message -> Post, and enforce() (delete/timeout/mod log)
+    policy.py            Warning ladder: when a warning becomes a timeout pending review
+    cases.py             SQLite store: cases, warnings, saved #rules text
+    review.py            CaseManager: opens cases, DMs warnings, case reports + buttons
+    rules.py             RulesBook: reads #rules (text + embeds), refreshed on every change
+    discord_glue.py      Discord message -> Post, exemptions
     check.py             CLI: python -m bot.moderation.check images... --text "..."
 examples/scam/           Real scam screenshots used by tests and for manual checks
 tests/                   pytest suite (no network)
@@ -57,7 +62,8 @@ tests/                   pytest suite (no network)
    - Flags only if the label isn't `ok` and confidence ≥ `MOD_MIN_CONFIDENCE`.
    - Verdicts are cached by content hash, so a scam cross-posted to many channels costs one call.
 3. If the AI is off or fails, a score ≥ 50 (`SOFT_SCORE`) is flagged on rules alone.
-4. `enforce()` reports to `MOD_LOG_CHANNEL_ID` with the images re-uploaded as evidence, then deletes and times out only if configured.
+4. `CaseManager.open_from_message()` opens a case and adds a warning. `policy.plan()` decides whether to delete the message (per-label `MOD_*_ACTION`) and whether to time out pending review (warning count ≥ `MOD_WARN_LIMIT`, or a severe scam). The member gets a DM, and the case report goes to `MOD_LOG_CHANNEL_ID` with buttons.
+5. Buttons use `custom_id = "case:<id>:<action>"` and are handled in `AssistantBot.on_interaction`, so they work after restarts. Each action checks the clicking moderator's Discord permission. A background task renews review timeouts before Discord's 28-day cap.
 
 When tuning weights, keep a single weak signal below the AI threshold, and keep the hard threshold for near-certain evidence only.
 
@@ -73,8 +79,8 @@ When tuning weights, keep a single weak signal below the AI threshold, and keep 
 
 Ordered roughly by value. Check with the server owner before large changes.
 
-- Save moderation incidents and known-scam image hashes in SQLite, so they survive restarts. A mod "this was a false positive" button can feed an allowlist.
-- Moderator buttons on mod-log reports: *Delete*, *Timeout*, *Ban*, *Not a scam*.
+- Save known-scam image hashes and AI verdicts in SQLite (cases already are), so the cache survives restarts. "Not a violation" decisions could feed an allowlist and a set of examples for prompt tuning.
+- An appeal flow: a button in the warning DM that posts the member's explanation to their case.
 - Scan edited messages (`on_message_edit`). Scammers sometimes post a harmless message and then edit it.
 - When cross-posting is detected, also clean up the earlier copies in other channels.
 - Perceptual image hashing, so slightly cropped or recompressed copies of known scam images match without an AI call.

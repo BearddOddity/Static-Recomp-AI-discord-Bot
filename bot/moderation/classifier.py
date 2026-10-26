@@ -9,7 +9,7 @@ from .signals import Signal
 
 log = logging.getLogger("bot.moderation")
 
-LABELS = ("ok", "scam", "piracy")
+LABELS = ("ok", "scam", "piracy", "rule_violation")
 
 SYSTEM_PROMPT = """\
 You are the moderation classifier for a Discord server about static recompilation of \
@@ -42,7 +42,16 @@ OK includes normal chat, development talk, screenshots of recompiled games, buil
 GitHub links, and people asking whether something is a scam.
 
 Reply with JSON only, no other text:
-{"label": "ok" | "scam" | "piracy", "confidence": 0.0-1.0, "reasons": ["short reason", ...]}"""
+{"label": "ok" | "scam" | "piracy" | "rule_violation", "confidence": 0.0-1.0, "reasons": ["short reason", ...]}"""
+
+RULES_SECTION = """
+SERVER RULES, copied from the server's rules channel and written by its admins. Enforce \
+them too. If the message clearly breaks one of these rules and is not a scam or piracy, \
+use the label "rule_violation" and quote the rule broken in the first reason. Be fair: \
+jokes, mild language and honest questions are not violations unless the rules say so.
+<<<
+{rules}
+>>>"""
 
 
 @dataclass(frozen=True)
@@ -80,7 +89,7 @@ class Classifier:
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     async def classify(
-        self, text: str, images: list[Image], urls: list[str], signals: list[Signal]
+        self, text: str, images: list[Image], urls: list[str], signals: list[Signal], rules: str = ""
     ) -> AIVerdict | None:
         """Return the model's verdict, or None if it failed or replied badly."""
         usable_images = tuple(images) if self.provider.supports_images else ()
@@ -96,7 +105,7 @@ class Classifier:
             details.append("Automatic rule findings: " + "; ".join(s.reason for s in signals))
 
         messages = [
-            Message("system", SYSTEM_PROMPT),
+            Message("system", SYSTEM_PROMPT + (RULES_SECTION.format(rules=rules) if rules.strip() else "")),
             Message("user", "\n\n".join(details), images=usable_images),
         ]
         async with self._semaphore:

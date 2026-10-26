@@ -1,9 +1,6 @@
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
-
-import discord
 import httpx
 import pytest
 
@@ -224,34 +221,3 @@ def test_openai_compatible_sends_data_url_images():
 def test_ollama_sends_images_field():
     msg = _capture(OllamaProvider, "http://localhost:11434", "llava", reply={"message": {"content": "{}"}})
     assert msg["images"] == ["iVBORw=="]
-
-
-# --- Discord actions -----------------------------------------------------------
-
-
-def test_enforce_deletes_times_out_and_reports_with_evidence():
-    from bot.moderation.discord_glue import enforce
-    from bot.moderation.engine import Verdict
-
-    settings = MagicMock(mod_action="delete", mod_piracy_action="flag", mod_timeout_minutes=60, mod_log_channel_id=99)
-    log_channel = MagicMock(spec=discord.TextChannel)
-    log_channel.send = AsyncMock()
-    message = MagicMock()
-    message.content = ""
-    message.created_at = discord.utils.utcnow()
-    message.delete = AsyncMock()
-    message.author = MagicMock(spec=discord.Member)
-    message.author.id = 5
-    message.author.mention = "<@5>"
-    message.author.timeout = AsyncMock()
-    message.guild.get_channel.return_value = log_channel
-
-    post = Post("", 5, 1, images=example_images(), attachment_count=4)
-    verdict = Verdict("scam", 0.95, ("fake giveaway",), "ai")
-    run(enforce(message, post, verdict, settings))
-
-    message.delete.assert_awaited_once()
-    message.author.timeout.assert_awaited_once()
-    kwargs = log_channel.send.await_args.kwargs
-    assert len(kwargs["files"]) == 4
-    assert "deleted the message" in kwargs["embed"].fields[2].value

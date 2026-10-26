@@ -22,11 +22,13 @@ class OpenAICompatibleProvider(AIProvider):
         api_key: str,
         model: str,
         timeout: float = 60,
+        extra_headers: dict[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
+        self._extra_headers = extra_headers or {}
         self._client = client or httpx.AsyncClient(timeout=timeout)
 
     async def complete(self, messages: list[Message]) -> str:
@@ -37,10 +39,14 @@ class OpenAICompatibleProvider(AIProvider):
         response = await self._client.post(
             f"{self._base_url}/chat/completions",
             json=body,
-            headers={"Authorization": f"Bearer {self._api_key}"},
+            headers={"Authorization": f"Bearer {self._api_key}", **self._extra_headers},
         )
         response.raise_for_status()
-        choices = response.json().get("choices", [])
+        data = response.json()
+        # OpenRouter (and some others) return HTTP 200 with an error body.
+        if "error" in data:
+            raise RuntimeError(f"{self.name} error: {data['error']}")
+        choices = data.get("choices", [])
         if not choices:
             return ""
         return choices[0].get("message", {}).get("content") or ""

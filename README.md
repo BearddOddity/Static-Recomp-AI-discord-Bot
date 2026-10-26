@@ -2,7 +2,35 @@
 
 A Discord assistant for the static recompiled games community. It answers questions with an AI model and is being built to moderate piracy and scam posts.
 
-This is the skeleton: it connects to Discord, handles an `/ask` command, and lets you choose the AI backend.
+It connects to Discord, answers `/ask` questions using your community's GitHub docs, and lets you choose the AI backend.
+
+## Quickstart with OpenRouter (free, nothing to host)
+
+1. Make an account at https://openrouter.ai and create a key at https://openrouter.ai/keys.
+2. Pick a free model at https://openrouter.ai/models?max_price=0. Free model IDs end in `:free`.
+3. In `.env`:
+
+   ```
+   AI_PROVIDER=openrouter
+   OPENAI_COMPAT_API_KEY=sk-or-...
+   OPENAI_COMPAT_MODEL=<model id ending in :free>
+   ```
+
+Free OpenRouter models have per-minute and daily request limits. Adding a small credit balance raises them. The bot sends `X-Title` (and `HTTP-Referer` when `OPENROUTER_SITE_URL` is set) so OpenRouter can credit your app.
+
+## Answering from GitHub docs
+
+List the repos to learn from in `DOCS_REPOS`, comma separated, as `owner/repo[@branch][:folder]`:
+
+```
+DOCS_REPOS=someorg/somegame-recomp,someorg/wiki@main:docs
+```
+
+At startup, and every `DOCS_REFRESH_MINUTES` after, the bot downloads Markdown, reStructuredText and text files from those repos and splits them into sections by heading. For each `/ask`, it finds the most relevant sections, gives them to the AI with the question, and links the source files under the answer. Server managers can run `/reload-docs` after updating the docs.
+
+- Without `GITHUB_TOKEN`, GitHub allows 60 API requests an hour, which covers a few public repos. A read-only fine-grained token raises that and allows private repos.
+- Only documentation files are read, not source code. Files over 200 KB and build files such as `CMakeLists.txt` are skipped.
+- The search is keyword based. It works best when docs use the same words people ask with.
 
 ## Choosing an AI backend
 
@@ -55,8 +83,11 @@ The provider tests use mocked HTTP responses, so they need no API keys.
 
 ```
 bot/
-  main.py            Discord client and /ask command
+  main.py            Discord client, /ask and /reload-docs
   config.py          Reads settings from the environment
+  docs/
+    github.py        Downloads doc files from GitHub repos
+    index.py         Splits docs into sections and searches them (BM25)
   ai/
     base.py          AIProvider interface and Message type
     anthropic_provider.py

@@ -35,11 +35,20 @@ def build_provider(settings: Settings) -> AIProvider:
 
     if choice in PRESETS or choice == "openai_compatible":
         base_url = PRESETS.get(choice) or settings.openai_compat_base_url
-        return OpenAICompatibleProvider(
+        extra_headers = {}
+        if choice == "openrouter":
+            # Optional headers OpenRouter uses to credit the app on its rankings.
+            extra_headers["X-Title"] = settings.openrouter_app_name
+            if settings.openrouter_site_url:
+                extra_headers["HTTP-Referer"] = settings.openrouter_site_url
+        provider = OpenAICompatibleProvider(
             base_url=base_url,
             api_key=settings.openai_compat_api_key,
             model=settings.openai_compat_model,
             timeout=settings.ai_timeout,
+            extra_headers=extra_headers,
         )
+        provider.name = choice
+        return provider
 
     raise ValueError(f"Unknown AI_PROVIDER: {choice!r}")

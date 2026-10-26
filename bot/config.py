@@ -35,6 +35,14 @@ class Settings:
     ai_cli_command: str
     ask_cooldown_seconds: float
 
+    openrouter_app_name: str
+    openrouter_site_url: str
+
+    docs_repos: str
+    github_token: str
+    docs_refresh_minutes: float
+    docs_excerpts: int
+
 
 # Settings each provider cannot work without, checked at startup so a missing
 # key fails immediately instead of on the first /ask.
@@ -87,4 +95,10 @@ def load_settings() -> Settings:
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
         ai_cli_command=os.getenv("AI_CLI_COMMAND", ""),
         ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "30")),
+        openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "Static Recomp AI Discord Bot"),
+        openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
+        docs_repos=os.getenv("DOCS_REPOS", ""),
+        github_token=os.getenv("GITHUB_TOKEN", ""),
+        docs_refresh_minutes=float(os.getenv("DOCS_REFRESH_MINUTES", "360")),
+        docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),
     )

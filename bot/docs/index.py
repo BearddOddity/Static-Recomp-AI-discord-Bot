@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .github import Document
 
 CHUNK_CHARS = 1500
+HEADING_WEIGHT = 3
 _HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
 _WORD = re.compile(r"[a-z0-9][a-z0-9_.+-]*")
 
@@ -75,8 +76,13 @@ class DocsIndex:
 
     def replace(self, documents: list[Document]) -> None:
         chunks = [chunk for document in documents for chunk in split_document(document)]
-        # File paths and headings are strong signals, so they count as text too.
-        counts = [Counter(_tokens(f"{c.document.path} {c.heading} {c.text}")) for c in chunks]
+        # A word in the file path or heading says more about a section than one in its body.
+        counts = []
+        for c in chunks:
+            counter = Counter(_tokens(c.text))
+            for token in _tokens(f"{c.document.path.replace('_', ' ')} {c.heading}"):
+                counter[token] += HEADING_WEIGHT
+            counts.append(counter)
         doc_freq: Counter = Counter()
         for counter in counts:
             doc_freq.update(counter.keys())
@@ -86,14 +92,18 @@ class DocsIndex:
         self._doc_freq = doc_freq
         self._avg_len = sum(sum(c.values()) for c in counts) / len(counts) if counts else 0.0
 
-    def search(self, query: str, limit: int = 4) -> list[Chunk]:
+    def search(self, query: str, limit: int = 4, repos: list[str] | None = None) -> list[Chunk]:
+        """Best-matching chunks. With repos, only chunks from those owner/repo names."""
         terms = set(_tokens(query))
         if not terms or not self._chunks:
             return []
+        allowed = {r.lower() for r in repos} if repos else None
 
         total = len(self._chunks)
         scored = []
         for chunk, counts in zip(self._chunks, self._term_counts):
+            if allowed is not None and chunk.document.repo.lower() not in allowed:
+                continue
             length = sum(counts.values()) or 1
             score = 0.0
             for term in terms:

@@ -94,3 +94,25 @@ def test_private_repo_falls_back_to_contents_api_with_token():
     )
     documents = asyncio.run(fetcher.fetch(RepoSpec("org", "private", ref="main")))
     assert [d.text for d in documents] == ["# Private\nDocs"]
+
+
+def test_wiki_spec_counts_as_its_base_repo():
+    spec = RepoSpec.parse("rexglue/rexglue-sdk.wiki")
+    assert spec.is_wiki
+    assert spec.base_name == "rexglue/rexglue-sdk"
+    assert not RepoSpec.parse("org/repo").is_wiki
+
+
+def test_wiki_pages_become_documents(tmp_path):
+    from bot.docs.github import wiki_documents
+
+    (tmp_path / "Home.md").write_text("# Welcome\nStart here.")
+    (tmp_path / "Kernel-State-&-Objects.md").write_text("# Kernel\nObjects.")
+    (tmp_path / "_Sidebar.md").write_text("nav")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD.md").write_text("not a page")
+
+    documents = wiki_documents(RepoSpec.parse("org/repo.wiki"), tmp_path)
+    assert [d.path for d in documents] == ["wiki/Home.md", "wiki/Kernel-State-&-Objects.md"]
+    assert {d.repo for d in documents} == {"org/repo"}
+    assert documents[1].url == "https://github.com/org/repo/wiki/Kernel-State-%26-Objects"

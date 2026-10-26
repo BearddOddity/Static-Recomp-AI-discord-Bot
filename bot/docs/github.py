@@ -1,5 +1,10 @@
+import asyncio
+import base64
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
@@ -12,12 +17,26 @@ RAW = "https://raw.githubusercontent.com"
 DOC_EXTENSIONS = (".md", ".mdx", ".markdown", ".rst", ".txt")
 # .txt files that are build or dependency lists, not documentation.
 SKIP_NAMES = ("cmakelists.txt", "requirements.txt", "requirements-dev.txt", "license.txt")
+# Folders of bundled libraries, licenses and test data rather than project docs.
+SKIP_DIRS = frozenset(
+    {
+        "third_party", "thirdparty", "vendor", "external", "node_modules",
+        "licenses", "fixtures", "scratch", "tests", "test",
+    }
+)
 MAX_FILE_BYTES = 200_000
+
+
+WIKI_SUFFIX = ".wiki"
+WIKI_CLONE_TIMEOUT = 120
 
 
 @dataclass(frozen=True)
 class RepoSpec:
-    """One entry of DOCS_REPOS, written as owner/repo[@ref][:path/prefix]."""
+    """One entry of DOCS_REPOS, written as owner/repo[@ref][:path/prefix].
+
+    owner/repo.wiki means the repo's GitHub wiki instead of its files.
+    """
 
     owner: str
     repo: str
@@ -41,6 +60,17 @@ class RepoSpec:
     @property
     def full_name(self) -> str:
         return f"{self.owner}/{self.repo}"
+
+    @property
+    def is_wiki(self) -> bool:
+        return self.repo.lower().endswith(WIKI_SUFFIX)
+
+    @property
+    def base_name(self) -> str:
+        """owner/repo without .wiki, so a wiki's pages count as part of its repo."""
+        if self.is_wiki:
+            return f"{self.owner}/{self.repo[: -len(WIKI_SUFFIX)]}"
+        return self.full_name
 
 
 @dataclass(frozen=True)
@@ -70,11 +100,14 @@ class GitHubDocsFetcher:
             # and allows private repos.
             headers["Authorization"] = f"Bearer {token}"
         self._headers = headers
+        self._token = token
         self._has_token = bool(token)
         self._max_files = max_files_per_repo
         self._client = client or httpx.AsyncClient(timeout=30, follow_redirects=True)
 
     async def fetch(self, spec: RepoSpec) -> list[Document]:
+        if spec.is_wiki:
+            return await self.fetch_wiki(spec)
         ref = spec.ref or await self._default_branch(spec)
 
         tree = await self._get_json(
@@ -89,6 +122,7 @@ class GitHubDocsFetcher:
             if item.get("type") == "blob"
             and item["path"].lower().endswith(DOC_EXTENSIONS)
             and item["path"].rsplit("/", 1)[-1].lower() not in SKIP_NAMES
+            and not SKIP_DIRS.intersection(item["path"].lower().split("/")[:-1])
             and item.get("size", 0) <= MAX_FILE_BYTES
             and _under(item["path"], spec.path_prefix)
         ][: self._max_files]
@@ -124,6 +158,49 @@ class GitHubDocsFetcher:
             return None
         return response.text
 
+    async def fetch_wiki(self, spec: RepoSpec) -> list[Document]:
+        """GitHub has no API that lists wiki pages, but every wiki is a small git
+        repo, so it is shallow-cloned into a temporary folder and read from there."""
+        url = f"https://github.com/{spec.full_name}.git"
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+        with tempfile.TemporaryDirectory() as workdir:
+            # Public wikis are cloned without the token, like raw files above.
+            try:
+                await self.clone(url, workdir, env)
+            except RuntimeError:
+                if not self._token:
+                    raise
+                # Private wiki. The token goes through the environment so it never
+                # shows in process args.
+                basic = base64.b64encode(f"x-access-token:{self._token}".encode()).decode()
+                token_env = {
+                    **env,
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "http.extraHeader",
+                    "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+                }
+                workdir = tempfile.mkdtemp(dir=workdir)
+                await self.clone(url, workdir, token_env)
+            return wiki_documents(spec, Path(workdir))
+
+    @staticmethod
+    async def clone(url: str, dest: str, env: dict[str, str]) -> None:
+        process = await asyncio.create_subprocess_exec(
+            "git", "clone", "--quiet", "--depth", "1", url, dest,
+            env=env,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=WIKI_CLONE_TIMEOUT)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            raise RuntimeError(f"git clone of {url} timed out") from None
+        if process.returncode != 0:
+            raise RuntimeError(f"git clone of {url} failed: {stderr.decode(errors='replace').strip()[:300]}")
+
     async def _default_branch(self, spec: RepoSpec) -> str:
         info = await self._get_json(f"{API}/repos/{spec.full_name}")
         return info["default_branch"]
@@ -135,6 +212,32 @@ class GitHubDocsFetcher:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def wiki_documents(spec: RepoSpec, folder: Path) -> list[Document]:
+    documents = []
+    for file in sorted(folder.rglob("*")):
+        relative = file.relative_to(folder).as_posix()
+        # _Sidebar and _Footer are navigation, not content.
+        if (
+            not file.is_file()
+            or relative.startswith(".git/")
+            or file.name.startswith("_")
+            or not file.name.lower().endswith(DOC_EXTENSIONS)
+            or file.stat().st_size > MAX_FILE_BYTES
+            or not _under(relative, spec.path_prefix)
+        ):
+            continue
+        page = file.name.rsplit(".", 1)[0]
+        documents.append(
+            Document(
+                repo=spec.base_name,
+                path=f"wiki/{relative}",
+                url=f"https://github.com/{spec.base_name}/wiki/{quote(page)}",
+                text=file.read_text(encoding="utf-8", errors="replace"),
+            )
+        )
+    return documents
 
 
 def _under(path: str, prefix: str) -> bool:

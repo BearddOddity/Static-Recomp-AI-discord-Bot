@@ -7,7 +7,7 @@ from discord import app_commands
 
 from .ai import AIProvider, Message, build_provider
 from .config import Settings, load_settings
-from .docs import Chunk, DocsIndex, GitHubDocsFetcher, load_docs, parse_repo_list
+from .docs import Chunk, DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
 
 log = logging.getLogger("bot")
 
@@ -35,6 +35,10 @@ class AssistantBot(discord.Client):
 
         self.docs = DocsIndex()
         self.docs_specs = parse_repo_list(settings.docs_repos)
+        self.docs_router = DocsRouter.parse(settings.docs_routes)
+        unknown = self.docs_router.repos - {s.base_name.lower() for s in self.docs_specs}
+        if unknown:
+            raise RuntimeError(f"DOCS_ROUTES names repos missing from DOCS_REPOS: {', '.join(sorted(unknown))}")
         self.docs_fetcher = GitHubDocsFetcher(token=settings.github_token)
         self._docs_task: asyncio.Task | None = None
 
@@ -91,8 +95,18 @@ class AssistantBot(discord.Client):
         await super().close()
 
 
-def build_messages(system_prompt: str, question: str, excerpts: list[Chunk]) -> list[Message]:
+def build_messages(
+    system_prompt: str, question: str, excerpts: list[Chunk], topic_repos: list[str] = ()
+) -> list[Message]:
     messages = [Message("system", system_prompt)]
+    if topic_repos:
+        messages.append(
+            Message(
+                "system",
+                f"This question is about the {', '.join(topic_repos)} project. Answer for that "
+                "project only, and don't mix in details from other recompilation projects.",
+            )
+        )
     if excerpts:
         body = "\n\n".join(
             f"[{n}] {c.document.repo}/{c.document.path} ({c.heading})\n{c.text}"
@@ -138,9 +152,18 @@ async def ask(interaction: discord.Interaction, question: str) -> None:
     await interaction.response.defer(thinking=True)
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
 
-    excerpts = bot.docs.search(question, limit=bot.settings.docs_excerpts)
+    # A keyword like "360" or "Xbox" narrows the search to that project's repo. The
+    # keyword itself is dropped from the search, since every chunk there matches it.
+    topic_repos, search_text = bot.docs_router.route(question)
+    excerpts = bot.docs.search(
+        search_text if topic_repos else question,
+        limit=bot.settings.docs_excerpts,
+        repos=topic_repos or None,
+    )
     try:
-        answer = await bot.ai.complete(build_messages(bot.settings.system_prompt, question, excerpts))
+        answer = await bot.ai.complete(
+            build_messages(bot.settings.system_prompt, question, excerpts, topic_repos)
+        )
     except Exception:
         log.exception("AI request failed")
         await interaction.followup.send("The AI provider failed. Check the bot logs.")

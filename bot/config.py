@@ -39,6 +39,7 @@ class Settings:
     openrouter_site_url: str
 
     docs_repos: str
+    docs_routes: str
     github_token: str
     docs_refresh_minutes: float
     docs_excerpts: int
@@ -98,6 +99,7 @@ def load_settings() -> Settings:
         openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "Static Recomp AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
         docs_repos=os.getenv("DOCS_REPOS", ""),
+        docs_routes=os.getenv("DOCS_ROUTES", ""),
         github_token=os.getenv("GITHUB_TOKEN", ""),
         docs_refresh_minutes=float(os.getenv("DOCS_REFRESH_MINUTES", "360")),
         docs_excerpts=int(os.getenv("DOCS_EXCERPTS", "4")),

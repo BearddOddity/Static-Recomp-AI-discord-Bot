@@ -2,10 +2,12 @@ import logging
 
 from .github import Document, GitHubDocsFetcher, RepoSpec, parse_repo_list
 from .index import Chunk, DocsIndex
+from .routing import DocsRouter
 
 __all__ = [
     "Chunk",
     "DocsIndex",
+    "DocsRouter",
     "Document",
     "GitHubDocsFetcher",
     "RepoSpec",

@@ -6,6 +6,11 @@ from dotenv import dotenv_values, load_dotenv
 
 from .runtime_settings import apply_overrides
 
+DEFAULT_WELCOME = (
+    "Welcome to {server}, {user}! 👋 Please read {rules}. Ask me anything with `/ask` or by "
+    "mentioning me, and use `/help` to open a private thread if you want a person's help."
+)
+
 PROVIDERS = (
     "anthropic",
     "openrouter",
@@ -89,6 +94,12 @@ class Settings:
     ai_backup_model: str = ""
     ai_backup_vision_model: str = ""  # used for moderation (images) when set
     ai_backup_base_url: str = ""  # only for openai_compatible
+    appeals_enabled: bool = True  # warned members get an Appeal button in their DM
+    help_enabled: bool = True  # /help opens a private help thread
+    help_channel_id: int | None = None  # where those threads are made (empty = where /help is used)
+    help_staff_role_id: int | None = None  # pinged by "Get a human"
+    welcome_channel_id: int | None = None  # empty = no welcome message (needs the Server Members Intent)
+    welcome_message: str = DEFAULT_WELCOME
 
 
 # Settings each provider cannot work without, checked at startup so a missing
@@ -255,4 +266,10 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ai_backup_model=os.getenv("AI_BACKUP_MODEL", "").strip(),
         ai_backup_vision_model=os.getenv("AI_BACKUP_VISION_MODEL", "").strip(),
         ai_backup_base_url=os.getenv("AI_BACKUP_BASE_URL", "").strip(),
+        appeals_enabled=_flag("APPEALS_ENABLED", True),
+        help_enabled=_flag("HELP_ENABLED", True),
+        help_channel_id=_optional_int("HELP_CHANNEL_ID"),
+        help_staff_role_id=_optional_int("HELP_STAFF_ROLE_ID"),
+        welcome_channel_id=_optional_int("WELCOME_CHANNEL_ID"),
+        welcome_message=_get("WELCOME_MESSAGE", DEFAULT_WELCOME)[:1500],
     )

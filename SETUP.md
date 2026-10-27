@@ -14,14 +14,14 @@ This takes about 20 minutes and no programming. You need:
 2. On **General Information**, copy the **Application ID**. You need it in step 2.
 3. Open the **Bot** page:
    - Click **Reset Token**, then **Copy**. This is your `DISCORD_TOKEN`. Keep it secret: anyone with it controls your bot. If it ever leaks, reset it again.
-   - Under **Privileged Gateway Intents**, turn on **Message Content Intent** and click **Save Changes**. Without it the bot can't read messages and won't start.
+   - Under **Privileged Gateway Intents**, turn on **Message Content Intent** and click **Save Changes**. Without it the bot can't read messages and won't start. If you want a welcome message for new members, also turn on **Server Members Intent** here ([details](docs/COMMUNITY.md#welcome-message)).
 
 ## 2. Invite the bot to your server
 
 Paste this link into your browser, replacing `YOUR_APPLICATION_ID` with the number from step 1:
 
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&scope=bot+applications.commands&permissions=1374389660772
+https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&scope=bot+applications.commands&permissions=1460289006692
 ```
 
 Pick your server and click **Authorize**. This grants exactly the permissions the bot uses:
@@ -33,6 +33,7 @@ Pick your server and click **Authorize**. This grants exactly the permissions th
 | Moderate Members | Time members out while a moderator reviews their case |
 | Ban Members | Ban, but **only** when a moderator presses Ban on a case |
 | Manage Server | See Discord's AutoMod slur filter, used for hate speech |
+| Create Private Threads, Manage Threads | `/help` threads: a private thread per member, closed when they're done |
 
 The bot also prints this link (with your ID filled in) every time it starts.
 

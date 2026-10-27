@@ -14,13 +14,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-GROUPS = ("Channels", "AI", "Keys", "Moderation", "Assistant")
+GROUPS = ("Channels", "AI", "Keys", "Moderation", "Assistant", "Community")
 GROUP_HELP = {
     "Channels": "Where the bot reports and which channels it reads",
     "AI": "Which AI provider and models answer and moderate",
     "Keys": "API keys and tokens (administrators only; never shown again)",
     "Moderation": "Scam, piracy and rule enforcement",
     "Assistant": "How the bot answers members and updates itself",
+    "Community": "Welcome message, help threads and appeals",
 }
 
 
@@ -83,6 +84,7 @@ _FIELDS = [
     _f("MOD_WARN_LIMIT", "Warnings before timeout", "Moderation", "int", "1-20", low=1, high=20),
     _f("MOD_WARN_EXPIRY_DAYS", "Warning expiry (days)", "Moderation", "float", "0 = never expire", low=0, high=3650),
     _f("MOD_DM_WARNINGS", "DM members on warning", "Moderation", "bool", "Send the member a DM with the reason"),
+    _f("APPEALS_ENABLED", "Allow appeals", "Moderation", "bool", "Warned members get an Appeal button in their DM"),
     _f("MOD_EXEMPT_ROLE_IDS", "Exempt roles", "Moderation", "ids", "Role IDs that are never moderated (comma separated)"),
     # Assistant
     _f("COMMUNITY_ABOUT", "Community topic", "Assistant", "text", "What the server is about, in a few words", max_length=400),
@@ -95,6 +97,14 @@ _FIELDS = [
     _f("DOCS_EXCERPTS", "Docs sections per answer", "Assistant", "int", "1-10", low=1, high=10),
     _f("DOCS_AI_QUERY", "AI docs search", "Assistant", "choice", "fallback, always (best, costs more) or off", choices=("fallback", "always", "off")),
     _f("AUTO_UPDATE", "Self-update", "Assistant", "bool", "Pull new code from GitHub and restart"),
+    # Community
+    _f("WELCOME_CHANNEL_ID", "Welcome channel", "Community", "channel",
+       "Empty = no welcome. Needs the Server Members Intent in the Developer Portal"),
+    _f("WELCOME_MESSAGE", "Welcome message", "Community", "paragraph",
+       "{user} {server} {rules} are filled in (empty = the default)", max_length=1500),
+    _f("HELP_ENABLED", "Help threads", "Community", "bool", "Let members open a private help thread with /help"),
+    _f("HELP_CHANNEL_ID", "Help channel", "Community", "channel", "Where help threads are made (empty = where /help is used)"),
+    _f("HELP_STAFF_ROLE_ID", "Help staff role", "Community", "id", "Pinged when a member asks for a human"),
 ]
 FIELDS: dict[str, Field] = {f.key: f for f in _FIELDS}
 assert len(FIELDS) == len(_FIELDS)

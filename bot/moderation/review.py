@@ -53,6 +53,17 @@ def custom_id(case_id: int, action: str) -> str:
     return f"{PREFIX}:{case_id}:{action}"
 
 
+APPEAL_PREFIX = "appeal"  # handled by moderation/appeals.py
+
+
+def appeal_view(case_id: int) -> discord.ui.View:
+    """The Appeal button under a warning DM."""
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Appeal this warning", emoji="✉️", style=discord.ButtonStyle.secondary,
+                                    custom_id=f"{APPEAL_PREFIX}:{case_id}:open"))
+    return view
+
+
 def parse_custom_id(value: str) -> tuple[int, str] | None:
     parts = value.split(":")
     if len(parts) != 3 or parts[0] != PREFIX or not parts[1].isdigit():
@@ -182,7 +193,8 @@ def build_dm_embed(case: Case, number: int, server: str, settings: Settings) -> 
     else:
         next_step = f"At {settings.mod_warn_limit} warnings you are timed out until a moderator reviews your case."
     embed.add_field(name="What happens next", value=next_step, inline=False)
-    embed.set_footer(text=f"Case #{case.id} · think this is a mistake, or your account was hacked? A moderator will review it.")
+    embed.set_footer(text=f"Case #{case.id} · think this is a mistake, or your account was hacked? Press Appeal below."
+                     if settings.appeals_enabled else f"Case #{case.id} · think this is a mistake? Message a moderator.")
     return embed
 
 
@@ -351,9 +363,25 @@ class CaseManager:
         guild = self.client.get_guild(case.guild_id)
         server = guild.name if guild else "the server"
         try:
-            await member.send(embed=build_dm_embed(case, number, server, self.settings))
+            await member.send(
+                embed=build_dm_embed(case, number, server, self.settings),
+                view=appeal_view(case.id) if self.settings.appeals_enabled else discord.utils.MISSING,
+            )
         except discord.HTTPException:
             pass  # DMs closed; the case report still has everything
+
+    def log_channel(self) -> discord.abc.Messageable | None:
+        return self._log_channel()
+
+    async def refresh_report(self, case: Case) -> None:
+        await self._refresh_report(case)
+
+    async def dismiss(self, case: Case, guild: discord.Guild, moderator: discord.Member) -> str:
+        """Close a case as "not a violation": the warning is removed and any timeout lifted."""
+        note = await self._decide(case, "dismiss", guild, moderator)
+        self.store.save(case)
+        await self._refresh_report(case)
+        return note
 
     async def _post_report(self, case: Case, images=()) -> None:
         channel = self._log_channel()

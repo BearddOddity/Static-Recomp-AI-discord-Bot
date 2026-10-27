@@ -44,6 +44,42 @@ CREATE TABLE IF NOT EXISTS warnings (
     revoked INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS warnings_user ON warnings (guild_id, user_id);
+CREATE TABLE IF NOT EXISTS appeals (
+    case_id INTEGER PRIMARY KEY REFERENCES cases(id),
+    user_id INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL,            -- open, accepted, rejected
+    created_at REAL NOT NULL,
+    decided_by INTEGER,
+    decided_at REAL,
+    log_channel_id INTEGER,
+    log_message_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS answers (
+    message_id INTEGER PRIMARY KEY,  -- the bot's last message of the answer, which holds the buttons
+    guild_id INTEGER,
+    channel_id INTEGER,
+    user_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS votes (
+    message_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    vote INTEGER NOT NULL,           -- 1 up, -1 down
+    created_at REAL NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS tickets (
+    thread_id INTEGER PRIMARY KEY,
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    topic TEXT NOT NULL,
+    status TEXT NOT NULL,            -- open, human (a moderator took over), closed
+    created_at REAL NOT NULL,
+    closed_at REAL
+);
 CREATE TABLE IF NOT EXISTS rules (
     guild_id INTEGER PRIMARY KEY,
     channel_id INTEGER,
@@ -82,6 +118,43 @@ class Case:
     @property
     def is_open(self) -> bool:
         return self.status != "closed"
+
+
+@dataclass
+class Appeal:
+    case_id: int
+    user_id: int
+    text: str
+    status: str = "open"
+    created_at: float = 0.0
+    decided_by: int | None = None
+    decided_at: float | None = None
+    log_channel_id: int | None = None
+    log_message_id: int | None = None
+
+
+@dataclass
+class Ticket:
+    thread_id: int
+    guild_id: int
+    user_id: int
+    topic: str
+    status: str = "open"
+    created_at: float = 0.0
+    closed_at: float | None = None
+
+
+@dataclass(frozen=True)
+class Answer:
+    message_id: int
+    guild_id: int | None
+    channel_id: int | None
+    user_id: int
+    question: str
+    answer: str
+    created_at: float
+    up: int = 0
+    down: int = 0
 
 
 @dataclass(frozen=True)
@@ -190,6 +263,114 @@ class CaseStore:
 
     def revoke_warnings_for_case(self, case_id: int) -> None:
         self._db.execute("UPDATE warnings SET revoked = 1 WHERE case_id = ?", (case_id,))
+        self._db.commit()
+
+    # --- appeals -----------------------------------------------------------
+
+    def create_appeal(self, case_id: int, user_id: int, text: str) -> Appeal | None:
+        """None when this case already has an appeal: one per case."""
+        try:
+            self._db.execute(
+                "INSERT INTO appeals (case_id, user_id, text, status, created_at) VALUES (?, ?, ?, 'open', ?)",
+                (case_id, user_id, text, time.time()),
+            )
+        except sqlite3.IntegrityError:
+            return None
+        self._db.commit()
+        return self.get_appeal(case_id)
+
+    def get_appeal(self, case_id: int) -> Appeal | None:
+        row = self._db.execute("SELECT * FROM appeals WHERE case_id = ?", (case_id,)).fetchone()
+        return Appeal(**dict(row)) if row else None
+
+    def save_appeal(self, appeal: Appeal) -> None:
+        self._db.execute(
+            "UPDATE appeals SET status = ?, decided_by = ?, decided_at = ?, log_channel_id = ?, log_message_id = ?"
+            " WHERE case_id = ?",
+            (appeal.status, appeal.decided_by, appeal.decided_at, appeal.log_channel_id, appeal.log_message_id,
+             appeal.case_id),
+        )
+        self._db.commit()
+
+    # --- answer feedback ---------------------------------------------------
+
+    def record_answer(self, message_id: int, guild_id: int | None, channel_id: int | None, user_id: int,
+                      question: str, answer: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO answers (message_id, guild_id, channel_id, user_id, question, answer, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (message_id, guild_id, channel_id, user_id, question[:1000], answer[:3000], time.time()),
+        )
+        self._db.commit()
+
+    def has_answer(self, message_id: int) -> bool:
+        return self._db.execute("SELECT 1 FROM answers WHERE message_id = ?", (message_id,)).fetchone() is not None
+
+    def vote(self, message_id: int, user_id: int, vote: int) -> int:
+        """Record a vote (1 up, -1 down). Voting the same way again takes it back.
+        Returns the member's vote now: 1, -1 or 0."""
+        row = self._db.execute(
+            "SELECT vote FROM votes WHERE message_id = ? AND user_id = ?", (message_id, user_id)
+        ).fetchone()
+        if row and row["vote"] == vote:
+            self._db.execute("DELETE FROM votes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
+            now = 0
+        else:
+            self._db.execute(
+                "INSERT OR REPLACE INTO votes (message_id, user_id, vote, created_at) VALUES (?, ?, ?, ?)",
+                (message_id, user_id, vote, time.time()),
+            )
+            now = vote
+        self._db.commit()
+        return now
+
+    def vote_counts(self, message_id: int) -> tuple[int, int]:
+        row = self._db.execute(
+            "SELECT COALESCE(SUM(vote = 1), 0) AS up, COALESCE(SUM(vote = -1), 0) AS down FROM votes"
+            " WHERE message_id = ?", (message_id,),
+        ).fetchone()
+        return int(row["up"]), int(row["down"])
+
+    def downvoted_answers(self, guild_id: int, limit: int = 10) -> list[Answer]:
+        """Answers with more 👎 than 👍, the most recently downvoted first."""
+        rows = self._db.execute(
+            "SELECT a.*, SUM(v.vote = 1) AS up, SUM(v.vote = -1) AS down, MAX(v.created_at) AS last_vote"
+            " FROM answers a JOIN votes v ON v.message_id = a.message_id WHERE a.guild_id = ?"
+            " GROUP BY a.message_id HAVING down > up ORDER BY last_vote DESC LIMIT ?",
+            (guild_id, limit),
+        ).fetchall()
+        return [
+            Answer(r["message_id"], r["guild_id"], r["channel_id"], r["user_id"], r["question"], r["answer"],
+                   r["created_at"], int(r["up"]), int(r["down"]))
+            for r in rows
+        ]
+
+    # --- help tickets ------------------------------------------------------
+
+    def create_ticket(self, thread_id: int, guild_id: int, user_id: int, topic: str) -> Ticket:
+        self._db.execute(
+            "INSERT INTO tickets (thread_id, guild_id, user_id, topic, status, created_at) VALUES (?, ?, ?, ?, 'open', ?)",
+            (thread_id, guild_id, user_id, topic[:500], time.time()),
+        )
+        self._db.commit()
+        return self.get_ticket(thread_id)
+
+    def get_ticket(self, thread_id: int) -> Ticket | None:
+        row = self._db.execute("SELECT * FROM tickets WHERE thread_id = ?", (thread_id,)).fetchone()
+        return Ticket(**dict(row)) if row else None
+
+    def open_ticket_for(self, guild_id: int, user_id: int) -> Ticket | None:
+        row = self._db.execute(
+            "SELECT * FROM tickets WHERE guild_id = ? AND user_id = ? AND status != 'closed' ORDER BY created_at DESC LIMIT 1",
+            (guild_id, user_id),
+        ).fetchone()
+        return Ticket(**dict(row)) if row else None
+
+    def set_ticket_status(self, thread_id: int, status: str) -> None:
+        self._db.execute(
+            "UPDATE tickets SET status = ?, closed_at = ? WHERE thread_id = ?",
+            (status, time.time() if status == "closed" else None, thread_id),
+        )
         self._db.commit()
 
     # --- rules -------------------------------------------------------------

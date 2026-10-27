@@ -79,3 +79,42 @@ def test_classifier_prompt_names_the_community():
     prompt = system_prompt("retro handhelds")
     assert "Discord server about retro handhelds." in prompt and '{"label"' in prompt
     assert "recomp" not in system_prompt().lower()
+
+
+def test_ai_modes_parse_and_switch(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "key")
+    monkeypatch.setenv("OPENAI_COMPAT_MODEL", "base:free")
+    monkeypatch.setenv("AI_MODES", "Fast=a:free,b:free; smart = c:free ;broken; =x")
+    settings = config.load_settings()
+    assert settings.ai_modes == {"fast": "a:free,b:free", "smart": "c:free"}
+    provider = build_provider(settings)
+    provider.dead.add("base:free")
+    provider.set_models(["a:free", "b:free"])
+    assert provider.current == "a:free" and provider.configured == ["a:free", "b:free"]
+    assert not provider.dead
+
+
+def test_tune_changes_are_clamped_and_survive_a_restart(monkeypatch, tmp_path):
+    from bot import config
+    from bot.main import AssistantBot
+
+    monkeypatch.setattr(config, "load_dotenv", lambda: None)
+    monkeypatch.setenv("DISCORD_TOKEN", "t")
+    monkeypatch.setenv("AI_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "k")
+    monkeypatch.setenv("MOD_DB_PATH", str(tmp_path / "mod.sqlite3"))
+    monkeypatch.setenv("MOD_MIN_CONFIDENCE", "0.75")
+    monkeypatch.setenv("CHAT_CONTEXT_MESSAGES", "8")
+
+    bot = AssistantBot(config.load_settings())
+    assert (bot.min_confidence, bot.chat_context) == (0.75, 8)
+    bot.set_tuning(0.9, 3)
+    assert (bot.min_confidence, bot.chat_context) == (0.9, 3)
+    bot.set_tuning(context=99)  # None leaves the confidence alone; context is capped
+    assert (bot.min_confidence, bot.chat_context) == (0.9, 20)
+    bot.set_tuning(0.1, -5)  # out-of-range values are clamped, never stored raw
+    assert (bot.min_confidence, bot.chat_context) == (0.5, 0)
+
+    again = AssistantBot(config.load_settings())  # a restart reads the saved file
+    assert (again.min_confidence, again.chat_context) == (0.5, 0)

@@ -7,7 +7,7 @@ The bot is a general AI assistant, not just a docs search. Its personality is in
 
 - **Ask it:** `/ask`, mention it (`@Bot why does my build fail?`), or reply to one of its answers to follow up. It remembers the last few turns, so "and on Windows?" works.
 - **Assistant channels:** list channel IDs in `ASSISTANT_CHANNEL_IDS` and it answers every message there, like a chat window.
-- **It knows where it is:** who's asking, the server and channel, today's date, and the last few messages in the channel (`CHAT_CONTEXT_MESSAGES`), so "what do you think of Sam's idea?" makes sense to it.
+- **It knows where it is:** who's asking, the server and channel, today's date, and the last few messages in the channel (`CHAT_CONTEXT_MESSAGES`, changeable by moderators with `/tune`; see [TUNING.md](TUNING.md)), so "what do you think of Sam's idea?" makes sense to it.
 - **Screenshots:** attach an image (an error dialog, a crash log, a settings screen) and ask about it. This needs a model that accepts images.
 - **Its own rules still apply:** it follows the server's rules channel and the anti-piracy policy, and it says when it isn't sure instead of making things up. It can't browse the web.
 - **Personality:** set `AI_SYSTEM_PROMPT` to replace it. `{name}`, `{server}` and `{community}` are filled in.

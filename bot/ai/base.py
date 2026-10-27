@@ -61,6 +61,8 @@ def classify(status: int | None, message: str) -> str:
     text = message.lower()
     if "flagged" in text or "moderation" in text:
         return "other"  # OpenRouter's 403 for a message its filter blocked; the key is fine
+    if status == 403 and "only available" in text:
+        return "model"  # this model is restricted (e.g. agentic apps only); the key is fine
     if status in (401, 403) or "api key" in text or "auth" in text and "credential" in text:
         return "key"
     if status == 402 or "credit" in text:

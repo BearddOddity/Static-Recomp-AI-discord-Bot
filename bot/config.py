@@ -1,8 +1,10 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
+
+from .runtime_settings import apply_overrides
 
 PROVIDERS = (
     "anthropic",
@@ -79,6 +81,14 @@ class Settings:
     mod_blocked_domains: frozenset[str]
     mod_allowed_domains: frozenset[str]
     mod_piracy_domains: frozenset[str]
+    # Named model lists /ai-mode can switch /ask between: {"fast": "model-a,model-b"}.
+    ai_modes: dict[str, str] = field(default_factory=dict)
+    # Optional second provider, tried when the main one fails or is out of quota.
+    ai_backup_provider: str = ""  # groq, gemini, openrouter or openai_compatible
+    ai_backup_api_key: str = ""
+    ai_backup_model: str = ""
+    ai_backup_vision_model: str = ""  # used for moderation (images) when set
+    ai_backup_base_url: str = ""  # only for openai_compatible
 
 
 # Settings each provider cannot work without, checked at startup so a missing
@@ -111,6 +121,16 @@ def _choice(name: str, default: str, options: tuple[str, ...]) -> str:
 
 def _set(name: str) -> frozenset[str]:
     return frozenset(p.strip().lower() for p in os.getenv(name, "").split(",") if p.strip())
+
+
+def _modes(name: str) -> dict[str, str]:
+    """AI_MODES="fast=a,b; smart=c,d" -> {"fast": "a,b", "smart": "c,d"}."""
+    modes = {}
+    for part in os.getenv(name, "").split(";"):
+        mode, _, models = part.partition("=")
+        if mode.strip() and models.strip():
+            modes[mode.strip().lower()] = models.strip()
+    return modes
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -147,6 +167,7 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
     Command-line tools that never connect to Discord, or never call the AI, can
     skip those checks."""
     load_dotenv()
+    apply_overrides()  # settings saved from Discord (/settings) win over .env
     load_server_profile()
 
     provider = os.getenv("AI_PROVIDER", "anthropic").strip().lower()
@@ -156,6 +177,17 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
     missing = [name for name in REQUIRED_BY_PROVIDER[provider] if not os.getenv(name, "").strip()]
     if missing and require_ai:
         raise RuntimeError(f"AI_PROVIDER={provider} needs: {', '.join(missing)}")
+
+    backup = os.getenv("AI_BACKUP_PROVIDER", "").strip().lower()
+    if backup:
+        if backup not in ("groq", "gemini", "openrouter", "openai_compatible"):
+            raise RuntimeError("AI_BACKUP_PROVIDER must be groq, gemini, openrouter or openai_compatible")
+        needs = ["AI_BACKUP_API_KEY"] + (["AI_BACKUP_BASE_URL"] if backup == "openai_compatible" else [])
+        if backup != "openrouter":
+            needs.append("AI_BACKUP_MODEL")
+        missing = [n for n in needs if not os.getenv(n, "").strip()]
+        if missing and require_ai:
+            raise RuntimeError(f"AI_BACKUP_PROVIDER={backup} needs: {', '.join(missing)}")
 
     guild = os.getenv("DISCORD_GUILD_ID", "").strip()
     about = _get("COMMUNITY_ABOUT", "video games")
@@ -217,4 +249,10 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         mod_blocked_domains=_set("MOD_BLOCKED_DOMAINS"),
         mod_allowed_domains=_set("MOD_ALLOWED_DOMAINS"),
         mod_piracy_domains=_set("MOD_PIRACY_DOMAINS"),
+        ai_modes=_modes("AI_MODES"),
+        ai_backup_provider=backup,
+        ai_backup_api_key=os.getenv("AI_BACKUP_API_KEY", "").strip(),
+        ai_backup_model=os.getenv("AI_BACKUP_MODEL", "").strip(),
+        ai_backup_vision_model=os.getenv("AI_BACKUP_VISION_MODEL", "").strip(),
+        ai_backup_base_url=os.getenv("AI_BACKUP_BASE_URL", "").strip(),
     )

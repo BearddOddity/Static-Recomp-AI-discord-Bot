@@ -1,6 +1,6 @@
 # Moderation
 
-How the bot catches scams, piracy and hate speech, the warning ladder, and case reports.
+How the bot catches scams, piracy and hate speech, the warning ladder, and case reports. How strict the AI is (`MOD_MIN_CONFIDENCE`) can be changed live with `/tune`: see [TUNING.md](TUNING.md).
 
 
 The bot checks every message from members (anyone with **Manage Messages** is skipped) for scams, piracy, hate speech and breaking your server's rules. Edited messages are checked again.

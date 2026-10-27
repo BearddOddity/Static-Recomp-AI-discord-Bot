@@ -193,3 +193,21 @@ def test_assistant_prompt_has_persona_context_and_images():
     assert "talking with Dana in #help" in system and "Monday 26 October 2026" in system
     assert "Sam: hi all" in system and "anti-piracy" in system
     assert messages[-1].images == (image,)
+
+
+def test_sources_only_when_asked():
+    from bot.assist import wants_sources
+
+    assert wants_sources("can you link the docs for this?")
+    assert wants_sources("What's your source?")
+    assert not wants_sources("hello, are you online?")
+
+
+def test_docs_are_the_source_of_truth_and_missing_docs_are_admitted():
+    from bot.assist import NO_DOCS_NOTE, build_messages
+
+    def system_text(**kwargs):
+        return "\n".join(m.content for m in build_messages("persona", "how do I X?", [], **kwargs) if m.role == "system")
+
+    assert NO_DOCS_NOTE in system_text(docs_loaded=True)
+    assert NO_DOCS_NOTE not in system_text(docs_loaded=False)  # no docs configured: nothing to say

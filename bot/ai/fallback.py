@@ -113,6 +113,13 @@ class FallbackProvider(AIProvider):
         self.current = self.configured[0] if self.configured else ""
         self.dead: set[str] = set()  # models that don't exist (any more)
         self.on_problem: Callable[[Problem], Awaitable[None]] | None = None
+        self.backup: AIProvider | None = None  # another provider, tried when this one fails
+
+    def set_models(self, models: list[str]) -> None:
+        """Switch to another model list (the first is used, the rest are backups)."""
+        self.configured = [m for m in models if m]
+        self.current = self.configured[0] if self.configured else ""
+        self.dead.clear()
 
     def _provider(self, model: str) -> AIProvider:
         if model not in self._providers:
@@ -147,6 +154,8 @@ class FallbackProvider(AIProvider):
                 log.warning("Model %s failed (%s): %s", model, error.kind, error)
                 if error.kind == "key":
                     await self._report(Problem("key", self.setting, model, str(error)))
+                    if (reply := await self._from_backup(messages)) is not None:
+                        return reply
                     raise
                 if error.kind == "model":
                     self.dead.add(model)
@@ -162,7 +171,21 @@ class FallbackProvider(AIProvider):
             # Not a passing rate limit: nothing on the list works at all.
             primary = self.configured[0] if self.configured else "(automatic)"
             await self._report(Problem("no_model", self.setting, primary, str(last) if last else "no models to try"))
+        if (reply := await self._from_backup(messages)) is not None:
+            return reply
         raise last or AIError("model", f"No model is available for {self.setting}")
+
+    async def _from_backup(self, messages: list[Message]) -> str | None:
+        """The backup provider's reply, or None when there is none or it failed too."""
+        if self.backup is None:
+            return None
+        try:
+            reply = await self.backup.complete(messages)
+        except AIError as error:
+            log.warning("Backup provider failed too (%s): %s", error.kind, error)
+            return None
+        log.warning("Answered %s from the backup provider %s", self.setting, self.backup.name)
+        return reply
 
     def _why(self, model: str) -> str:
         return f"{model} is no longer available from {self.name}."
@@ -177,3 +200,5 @@ class FallbackProvider(AIProvider):
     async def aclose(self) -> None:
         for provider in self._providers.values():
             await provider.aclose()
+        if self.backup is not None:
+            await self.backup.aclose()

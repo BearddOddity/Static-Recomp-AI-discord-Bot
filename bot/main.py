@@ -1,14 +1,16 @@
 import asyncio
 import contextlib
+import json
 import logging
 import sys
 import time
+from pathlib import Path
 
 import discord
 from discord import app_commands
 
 from . import __version__
-from .ai import AIProvider, FallbackProvider, Image, build_provider
+from .ai import AIProvider, FallbackProvider, Image, build_provider, models_from
 from .assist import (
     AskContext,
     ConversationMemory,
@@ -19,6 +21,7 @@ from .assist import (
     persona_prompt,
     split_reply,
     strip_mention,
+    wants_sources,
 )
 from .config import Settings, load_settings
 from .docs import DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
@@ -29,6 +32,7 @@ from .moderation.discord_glue import is_exempt, read_images, to_post
 from .moderation.review import PREFIX as CASE_PREFIX
 from .moderation.review import CaseManager
 from .moderation.rules import RulesBook
+from . import runtime_settings, settings_ui
 from .updater import RESTART_EXIT_CODE, Updater
 
 log = logging.getLogger("bot")
@@ -63,6 +67,12 @@ class AssistantBot(discord.Client):
         self.settings = settings
         self.exit_code = 0
         self.ai: AIProvider = build_provider(settings)
+
+        # /ai-mode: the chosen mode is saved next to the database so a restart keeps it.
+        self._mode_file = Path(settings.mod_db_path).parent / "ai_mode.txt"
+        self.ai_mode = "default"
+        with contextlib.suppress(OSError):
+            self.set_ai_mode(self._mode_file.read_text().strip(), save=False)
 
         self.docs = DocsIndex()
         self.docs_specs = parse_repo_list(settings.docs_repos)
@@ -100,6 +110,14 @@ class AssistantBot(discord.Client):
                 min_confidence=settings.mod_min_confidence,
             )
 
+        # /tune: moderators change these two live; the values are saved so a restart keeps them.
+        self.chat_context = settings.chat_context_messages
+        self.settings_pending: set[str] = set()  # settings saved from Discord, waiting for a restart
+        self._tuning_file = Path(settings.mod_db_path).parent / "tuning.json"
+        with contextlib.suppress(OSError, ValueError, TypeError):
+            saved = json.loads(self._tuning_file.read_text())
+            self.set_tuning(saved.get("confidence"), saved.get("context"), save=False)
+
         self.conversations = ConversationMemory()
         self._mention_asked: dict[int, float] = {}
 
@@ -123,6 +141,9 @@ class AssistantBot(discord.Client):
         self.tree.add_command(warn)
         self.tree.add_command(warnings)
         self.tree.add_command(status)
+        self.tree.add_command(ai_mode)
+        self.tree.add_command(tune)
+        self.tree.add_command(settings_command)
 
     async def setup_hook(self) -> None:
         if self.docs_specs:
@@ -141,6 +162,40 @@ class AssistantBot(discord.Client):
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()
+
+    @property
+    def min_confidence(self) -> float:
+        return self.moderator.min_confidence if self.moderator else self.settings.mod_min_confidence
+
+    def set_tuning(self, confidence: float | None = None, context: int | None = None, *, save: bool = True) -> None:
+        """Change how sure the moderation AI must be, and how many channel messages the
+        assistant reads. None leaves a value as it is."""
+        if confidence is not None and self.moderator:
+            self.moderator.min_confidence = min(0.99, max(0.5, float(confidence)))
+        if context is not None:
+            self.chat_context = min(20, max(0, int(context)))
+        if save:
+            self._tuning_file.parent.mkdir(parents=True, exist_ok=True)
+            self._tuning_file.write_text(json.dumps({"confidence": self.min_confidence, "context": self.chat_context}))
+
+    def set_ai_mode(self, mode: str, *, save: bool = True) -> bool:
+        """Point /ask at a named model list from AI_MODES, or "default" for the
+        OPENAI_COMPAT_MODEL list. False if there is no such mode."""
+        mode = mode.lower()
+        if not isinstance(self.ai, FallbackProvider):
+            return False
+        if mode == "default":
+            models = self.settings.openai_compat_model
+        elif mode in self.settings.ai_modes:
+            models = self.settings.ai_modes[mode]
+        else:
+            return False
+        self.ai.set_models(models_from(models))
+        self.ai_mode = mode
+        if save:
+            self._mode_file.parent.mkdir(parents=True, exist_ok=True)
+            self._mode_file.write_text(mode)
+        return True
 
     async def refresh_docs(self) -> int:
         documents = await load_docs(self.docs_fetcher, self.docs_specs)
@@ -203,6 +258,12 @@ class AssistantBot(discord.Client):
             log.warning("MOD_LOG_CHANNEL_ID is not set: cases are saved but moderators get no reports or buttons")
         for guild in self.guilds:
             await self.rules.refresh(guild)
+        if runtime_settings.rejected_reason:
+            await self.notify_mods(
+                f"⚠️ The settings saved from Discord were rejected at startup ({runtime_settings.rejected_reason[:300]}). "
+                "They were set aside in data/settings.rejected.json and the bot started from .env."
+            )
+            runtime_settings.rejected_reason = ""
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         await self.rules.refresh(guild)
@@ -282,16 +343,17 @@ class AssistantBot(discord.Client):
                 question, excerpts, topic_repos,
                 rules=self.rules.get(guild_id) if guild_id else "", history=list(history),
                 context=context, images=images if self.ai.supports_images else (),
+                docs_loaded=len(self.docs) > 0,
             )
         )
-        return split_reply(reply, excerpts), Turn(question, reply.strip())
+        return split_reply(reply, excerpts if wants_sources(question) else []), Turn(question, reply.strip())
 
     async def context_for(self, guild: discord.Guild | None, channel, user: discord.abc.User,
                           before: discord.Message | None = None) -> AskContext:
         recent: list[str] = []
-        if channel is not None and self.settings.chat_context_messages > 0:
+        if channel is not None and self.chat_context > 0:
             try:
-                async for earlier in channel.history(limit=self.settings.chat_context_messages, before=before):
+                async for earlier in channel.history(limit=self.chat_context, before=before):
                     if earlier.content:
                         name = "you" if earlier.author == self.user else earlier.author.display_name
                         recent.append(f"{name}: {earlier.clean_content[:300]}")
@@ -463,6 +525,75 @@ async def warnings(interaction: discord.Interaction, member: discord.Member) -> 
     await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
 
 
+@app_commands.command(name="ai-mode", description="Switch which AI models answer /ask")
+@app_commands.describe(mode="A mode from AI_MODES, or default. Leave empty to see the current one.")
+@app_commands.default_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def ai_mode(interaction: discord.Interaction, mode: str | None = None) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    modes = ["default", *bot.settings.ai_modes]
+    if mode is not None and not bot.set_ai_mode(mode):
+        await interaction.response.send_message(f"Unknown mode. Choose one of: {', '.join(modes)}", ephemeral=True)
+        return
+    current = getattr(bot.ai, "current", "") or "picks a free model on first use"
+    verb = "Switched to" if mode is not None else "Current mode:"
+    await interaction.response.send_message(
+        f"{verb} `{bot.ai_mode}` (model `{current}`). Modes: {', '.join(modes)}", ephemeral=True
+    )
+
+
+@app_commands.command(name="tune", description="Show or change how strict moderation is and how much chat the AI reads")
+@app_commands.describe(
+    confidence="How sure the moderation AI must be before flagging a post, 0.50 to 0.99 (higher = stricter)",
+    context="How many recent channel messages the AI reads before answering, 0 to 20 (0 = none)",
+)
+@app_commands.default_permissions(moderate_members=True)
+@app_commands.guild_only()
+async def tune(
+    interaction: discord.Interaction,
+    confidence: app_commands.Range[float, 0.5, 0.99] | None = None,
+    context: app_commands.Range[int, 0, 20] | None = None,
+) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    if confidence is not None and not bot.moderator:
+        await interaction.response.send_message("Moderation is off, so there is no confidence to set.", ephemeral=True)
+        return
+    before = (bot.min_confidence, bot.chat_context)
+    if confidence is not None or context is not None:
+        bot.set_tuning(confidence, context)
+        if before != (bot.min_confidence, bot.chat_context):
+            await bot.notify_mods(
+                f"🎚️ {interaction.user.mention} changed the settings: moderation confidence "
+                f"{before[0]:.2f} → {bot.min_confidence:.2f}, chat context {before[1]} → {bot.chat_context} messages."
+            )
+    verb = "Now" if confidence is not None or context is not None else "Current"
+    await interaction.response.send_message(
+        f"{verb}: moderation confidence **{bot.min_confidence:.2f}** (the AI must be at least this sure to flag a post; "
+        f"higher = fewer false alarms, lower = catches more) · chat context **{bot.chat_context}** messages "
+        f"(recent channel messages the AI reads before answering; 0 = none). Saved across restarts.",
+        ephemeral=True,
+    )
+
+
+@app_commands.command(name="settings", description="Open the private settings page (keys, channels, AI, moderation)")
+@app_commands.default_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def settings_command(interaction: discord.Interaction) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    if not settings_ui.can_use(interaction):
+        await interaction.response.send_message("You need the Manage Server permission to change settings.", ephemeral=True)
+        return
+    embed, view = settings_ui.page(bot, None)
+    view.owner_id = interaction.user.id
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+@ai_mode.autocomplete("mode")
+async def _ai_mode_choices(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    return [app_commands.Choice(name=m, value=m) for m in ("default", *bot.settings.ai_modes) if current.lower() in m]
+
+
 def invite_url(application_id: int | None) -> str:
     return discord.utils.oauth_url(
         application_id or 0, permissions=REQUIRED_PERMISSIONS, scopes=("bot", "applications.commands")
@@ -545,12 +676,19 @@ CONFIG_EXIT_CODE = 2
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    try:
-        settings = load_settings()
-        bot = AssistantBot(settings)
-    except (RuntimeError, ValueError) as error:
-        log.error("Setup problem: %s", error)
-        sys.exit(CONFIG_EXIT_CODE)
+    for attempt in (1, 2):
+        try:
+            settings = load_settings()
+            bot = AssistantBot(settings)
+            break
+        except (RuntimeError, ValueError) as error:
+            # Settings saved from Discord that stop the bot starting are set aside once,
+            # so a typo made in /settings can't lock everyone out.
+            if attempt == 1 and runtime_settings.reject_overrides(str(error)):
+                log.error("Saved Discord settings were rejected (%s); starting from .env instead", error)
+                continue
+            log.error("Setup problem: %s", error)
+            sys.exit(CONFIG_EXIT_CODE)
     try:
         bot.run(settings.discord_token, log_handler=None)
     except (discord.LoginFailure, discord.PrivilegedIntentsRequired) as error:

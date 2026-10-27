@@ -27,12 +27,14 @@ from .config import Settings, load_settings
 from .docs import DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
 from .health import GitHubReporter, HealthMonitor
 from .moderation import Classifier, LinkChecker, Moderator
+from .moderation.appeals import AppealManager
 from .moderation.cases import CaseStore
 from .moderation.discord_glue import is_exempt, read_images, to_post
+from .moderation.review import APPEAL_PREFIX
 from .moderation.review import PREFIX as CASE_PREFIX
 from .moderation.review import CaseManager
 from .moderation.rules import RulesBook
-from . import runtime_settings, settings_ui
+from . import community, runtime_settings, settings_ui
 from .updater import RESTART_EXIT_CODE, Updater
 
 log = logging.getLogger("bot")
@@ -52,15 +54,20 @@ REQUIRED_PERMISSIONS = discord.Permissions(
     moderate_members=True,  # timeouts pending review
     ban_members=True,  # only when a moderator presses Ban
     manage_guild=True,  # read AutoMod rules and receive AutoMod events
+    create_private_threads=True,  # /help threads
+    manage_threads=True,  # close and archive /help threads
 )
 
 class AssistantBot(discord.Client):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, members: bool | None = None):
         intents = discord.Intents.default()
         # Privileged: enable "Message Content Intent" in the Developer Portal.
         intents.message_content = True
         # Lets the bot hear Discord AutoMod's slur filter (needs Manage Server).
         intents.auto_moderation_execution = True
+        # Privileged: only asked for when a welcome message is set up, and only if the
+        # Developer Portal allows it (main() starts without it otherwise).
+        intents.members = bool(settings.welcome_channel_id) and members is not False
         # AI output is untrusted, so the bot never pings @everyone, roles or users.
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
 
@@ -87,6 +94,10 @@ class AssistantBot(discord.Client):
         self.store = CaseStore(settings.mod_db_path)
         self.rules = RulesBook(self.store, settings.rules_channel_id)
         self.cases = CaseManager(self, self.store, settings)
+        self.appeals = AppealManager(self, self.store, self.cases)
+        self.last_ai_welcome = -1e9  # when the AI last wrote a welcome
+        self._ticket_last: dict[int, int] = {}  # help thread -> the bot's latest answer there
+        self.notice = ""  # shown to moderators once, after startup
         self._renew_task: asyncio.Task | None = None
 
         self.moderator: Moderator | None = None
@@ -144,6 +155,8 @@ class AssistantBot(discord.Client):
         self.tree.add_command(ai_mode)
         self.tree.add_command(tune)
         self.tree.add_command(settings_command)
+        self.tree.add_command(help_command)
+        self.tree.add_command(feedback_command)
 
     async def setup_hook(self) -> None:
         if self.docs_specs:
@@ -258,12 +271,32 @@ class AssistantBot(discord.Client):
             log.warning("MOD_LOG_CHANNEL_ID is not set: cases are saved but moderators get no reports or buttons")
         for guild in self.guilds:
             await self.rules.refresh(guild)
+        if self.notice:
+            await self.notify_mods(self.notice)
+            self.notice = ""
         if runtime_settings.rejected_reason:
             await self.notify_mods(
                 f"⚠️ The settings saved from Discord were rejected at startup ({runtime_settings.rejected_reason[:300]}). "
                 "They were set aside in data/settings.rejected.json and the bot started from .env."
             )
             runtime_settings.rejected_reason = ""
+
+    async def on_member_join(self, member: discord.Member) -> None:
+        channel_id = self.settings.welcome_channel_id
+        channel = member.guild.get_channel(channel_id) if channel_id else None
+        if member.bot or not isinstance(channel, discord.abc.Messageable):
+            return
+        rules = self.rules.channel_for(member.guild)
+        rules_mention = rules.mention if rules else "the rules"
+        text = None
+        if self.settings.welcome_ai:  # off unless a moderator turned it on
+            text = await community.ai_welcome(self, member, rules_mention)
+        if text is None:
+            text = community.render_welcome(self.settings.welcome_message, member.mention, member.guild.name, rules_mention)
+        try:
+            await channel.send(text, allowed_mentions=discord.AllowedMentions(users=[member]))
+        except discord.HTTPException:
+            log.warning("Could not post the welcome message in channel %s", channel_id)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         await self.rules.refresh(guild)
@@ -371,6 +404,13 @@ class AssistantBot(discord.Client):
     def _asked_bot(self, message: discord.Message) -> list[Turn] | None:
         if message.guild is None or message.author.bot:
             return None
+        if isinstance(message.channel, discord.Thread):
+            ticket = self.store.get_ticket(message.channel.id)
+            if ticket:  # a /help thread: answer the member who opened it, until a moderator joins
+                if not community.bot_answers_in(ticket, message.author.id):
+                    return None
+                last = (message.reference.message_id if message.reference else None) or self._ticket_last.get(message.channel.id)
+                return self.conversations.get(last) if last else []
         if message.channel.id in self.settings.assistant_channel_ids:
             # Assistant channels: the bot answers every message there.
             reference = message.reference.message_id if message.reference else None
@@ -406,19 +446,56 @@ class AssistantBot(discord.Client):
             await message.reply("The AI provider failed. Check the bot logs.", mention_author=False)
             return
         for n, part in enumerate(parts):
-            sent = await (message.reply(part, mention_author=False) if n == 0 else message.channel.send(part))
+            last = n == len(parts) - 1
+            view = community.feedback_view() if last else discord.utils.MISSING
+            sent = await (message.reply(part, mention_author=False, view=view) if n == 0
+                          else message.channel.send(part, view=view))
             # Every part counts, so a reply to any of them continues the conversation.
             self.conversations.remember(sent.id, history, turn)
+            if last:
+                self.store.record_answer(sent.id, message.guild.id, message.channel.id, message.author.id, question, turn.answer)
+                if isinstance(message.channel, discord.Thread):
+                    self._ticket_last[message.channel.id] = sent.id
+
+    async def answer_in_thread(self, thread: discord.Thread, member: discord.abc.User, question: str) -> None:
+        """The first answer in a /help thread."""
+        try:
+            async with thread.typing():
+                context = await self.context_for(thread.guild, thread, member)
+                parts, turn = await self.answer(question, thread.guild.id, [], context)
+        except Exception:
+            log.exception("AI request failed in a help thread")
+            await thread.send("The AI provider failed. Press **Get a human** and a moderator will help.")
+            return
+        for n, part in enumerate(parts):
+            last = n == len(parts) - 1
+            sent = await thread.send(part, view=community.feedback_view() if last else discord.utils.MISSING)
+            self.conversations.remember(sent.id, [], turn)
+            if last:
+                self._ticket_last[thread.id] = sent.id
+                self.store.record_answer(sent.id, thread.guild.id, thread.id, member.id, question, turn.answer)
 
     async def on_interaction(self, interaction: discord.Interaction) -> None:
-        # Case report buttons. Slash commands are handled by the command tree.
-        if interaction.type == discord.InteractionType.component:
-            custom_id = (interaction.data or {}).get("custom_id", "")
-            if custom_id.startswith(CASE_PREFIX + ":"):
+        # Buttons on case reports, appeals, answers and help threads. Slash commands
+        # are handled by the command tree.
+        if interaction.type != discord.InteractionType.component:
+            return
+        custom_id = (interaction.data or {}).get("custom_id", "")
+        handlers = [
+            (lambda c: c.startswith(CASE_PREFIX + ":"), self.cases.handle_button),
+            (lambda c: c.startswith(APPEAL_PREFIX + ":"), self.appeals.handle_button),
+            (lambda c: c in (community.FEEDBACK_UP, community.FEEDBACK_DOWN),
+             lambda i: community.handle_feedback(self.store, i)),
+            (lambda c: c.startswith(community.TICKET_PREFIX + ":"),
+             lambda i: community.handle_ticket_button(self, i)),
+        ]
+        for matches, handle in handlers:
+            if matches(custom_id):
                 try:
-                    await self.cases.handle_button(interaction)
+                    await handle(interaction)
                 except Exception:
-                    log.exception("Case button %s failed", custom_id)
+                    log.exception("Button %s failed", custom_id)
+                return
 
     async def close(self) -> None:
         for task in (self._docs_task, self._renew_task, self._update_task):
@@ -465,9 +542,14 @@ async def ask(interaction: discord.Interaction, question: str) -> None:
         log.exception("AI request failed")
         await interaction.followup.send("The AI provider failed. Check the bot logs.")
         return
-    for part in parts:
-        sent = await interaction.followup.send(part, wait=True)
+    for n, part in enumerate(parts):
+        last = n == len(parts) - 1
+        sent = await interaction.followup.send(
+            part, wait=True, view=community.feedback_view() if last else discord.utils.MISSING
+        )
         bot.conversations.remember(sent.id, [], turn)
+        if last:
+            bot.store.record_answer(sent.id, interaction.guild_id, interaction.channel_id, interaction.user.id, question, turn.answer)
 
 
 @app_commands.command(name="reload-docs", description="Re-download the GitHub docs the bot answers from")
@@ -575,6 +657,25 @@ async def tune(
     )
 
 
+@app_commands.command(name="help", description="Open a private thread to get help")
+@app_commands.describe(question="What do you need help with?")
+@app_commands.guild_only()
+@app_commands.checks.cooldown(1, 60, key=lambda i: i.user.id)
+async def help_command(interaction: discord.Interaction, question: app_commands.Range[str, 3, 300]) -> None:
+    await community.open_help_thread(interaction.client, interaction, question)
+
+
+@app_commands.command(name="feedback", description="See the answers members marked as unhelpful")
+@app_commands.default_permissions(moderate_members=True)
+@app_commands.guild_only()
+async def feedback_command(interaction: discord.Interaction) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.moderate_members:
+        await interaction.response.send_message("You need the Moderate Members permission.", ephemeral=True)
+        return
+    await interaction.response.send_message(embed=community.downvoted_embed(bot.store, interaction.guild_id), ephemeral=True)
+
+
 @app_commands.command(name="settings", description="Open the private settings page (keys, channels, AI, moderation)")
 @app_commands.default_permissions(manage_guild=True)
 @app_commands.guild_only()
@@ -648,6 +749,15 @@ async def status(interaction: discord.Interaction) -> None:
         f"{ok} Docs: {len(bot.docs)} sections from {len(bot.docs_specs)} sources" if len(bot.docs)
         else f"{bad} No docs loaded yet (DOCS_REPOS, or wait a minute after startup)"
     )
+    on, off = ok, "➖"
+    lines.append(f"{on if settings.appeals_enabled else off} Appeals mode: "
+                 + ("on, warned members can appeal" if settings.appeals_enabled else "off (turn on in /settings → Community)"))
+    lines.append(f"{on if settings.help_enabled else off} Help mode: "
+                 + ("on, members can use /help" if settings.help_enabled else "off (turn on in /settings → Community)"))
+    welcome = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
+    lines.append(f"{on if welcome else off} Welcome: "
+                 + (f"{welcome.mention}, written by {'the AI' if settings.welcome_ai else 'your message'}" if welcome
+                    else "off (pick a channel in /settings → Community)"))
     lines.append(f"{ok} Warnings: timeout pending review at {settings.mod_warn_limit}; {bot.store.count_in_review(guild.id)} case(s) waiting for review")
 
     try:
@@ -690,7 +800,17 @@ def main() -> None:
             log.error("Setup problem: %s", error)
             sys.exit(CONFIG_EXIT_CODE)
     try:
-        bot.run(settings.discord_token, log_handler=None)
+        try:
+            bot.run(settings.discord_token, log_handler=None)
+        except discord.PrivilegedIntentsRequired:
+            if not bot.intents.members:
+                raise
+            # Only the welcome message needs this intent: start without it instead of staying offline.
+            log.warning("Server Members Intent is off in the Developer Portal; starting without welcome messages")
+            bot = AssistantBot(settings, members=False)
+            bot.notice = ("⚠️ Welcome messages are off: turn on **Server Members Intent** in the Developer Portal "
+                          "(Bot page) and restart the bot.")
+            bot.run(settings.discord_token, log_handler=None)
     except (discord.LoginFailure, discord.PrivilegedIntentsRequired) as error:
         log.error("Discord refused to log in: %s. Check DISCORD_TOKEN and the Message Content Intent.", error)
         sys.exit(CONFIG_EXIT_CODE)

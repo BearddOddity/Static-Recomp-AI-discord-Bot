@@ -109,7 +109,7 @@ AI rephrasing|When a question uses different words from the docs, the AI rewrite
 Code-safe|Code blocks are never cut in half
 Always loads|If GitHub's free hourly limit runs out, it downloads the repos with `git` instead
 
-More in [docs/ASSISTANT.md](docs/ASSISTANT.md). Moderators can change how much chat the assistant reads, and how strict moderation is, with `/tune` ([guide](docs/TUNING.md)), and administrators can manage channels, keys, models and more from a private `/settings` page ([guide](docs/SETTINGS.md)).
+More in [docs/ASSISTANT.md](docs/ASSISTANT.md). Moderators can change how much chat the assistant reads, and how strict moderation is, with `/tune` ([guide](docs/TUNING.md)), and administrators can manage channels, keys, models and more from a private `/settings` page ([guide](docs/SETTINGS.md)). Optional modes, off until a moderator turns them on: appeals, private `/help` threads and an (AI) welcome message, plus 👍/👎 on answers ([guide](docs/COMMUNITY.md)).
 
 ### Moderation
 

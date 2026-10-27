@@ -16,7 +16,7 @@ The 🔒 settings need more trust because they decide where your data and API ke
 ## How to use it
 
 1. Type `/settings`.
-2. Pick a group: **Channels**, **AI**, **Keys**, **Moderation** or **Assistant**.
+2. Pick a group: **Channels**, **AI**, **Keys**, **Moderation**, **Assistant** or **Community**.
 3. Pick a setting. A form opens for text and numbers; a menu appears for on/off and fixed choices.
 4. Save. The page shows what changed.
 5. Press **Restart now** when it says a restart is needed. The bot is back in about 20 seconds.
@@ -34,6 +34,8 @@ Two settings apply at once with no restart: **Confidence needed** and **Chat con
 **Keys** (🔒): the main AI key, Anthropic key, backup AI key, GitHub token for docs, GitHub token for health pull requests, and the health repository.
 
 **Moderation:** moderation on or off, AI scan mode, the delete-or-flag action for scams, piracy, rule-breaking and hate speech, warnings before a timeout, how long warnings last, DM on warning, exempt roles, and the confidence needed.
+
+**Community:** welcome channel and message, **AI welcome**, **Appeals mode**, **Help mode**, the help channel and the staff role pinged by "Get a human" ([details](COMMUNITY.md)). Appeals, Help and AI welcome are off until you turn them on, and each one explains itself before you change it.
 
 **Assistant:** community topic, personality (🔒), chat context, cooldown, answer mentions, docs repositories and routes (🔒), docs sections per answer, AI docs search, and self-update.
 

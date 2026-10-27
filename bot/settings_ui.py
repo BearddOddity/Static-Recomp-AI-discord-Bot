@@ -49,6 +49,8 @@ def page(bot, group: str | None, notice: str = "") -> tuple[discord.Embed, disco
     else:
         lines += [_line(bot, f) for f in rs.fields_in(group)]
         lines.append("\n🔒 needs Administrator · ⏳ saved, applies after a restart")
+        if group in rs.GROUP_NOTES:
+            lines.append("\n" + rs.GROUP_NOTES[group])
     if bot.settings_pending:
         lines.append("\n⏳ **Restart needed** to apply your changes.")
     embed.description = "\n".join(lines)[:4000]
@@ -121,7 +123,8 @@ class FieldSelect(discord.ui.Select):
             view = ChoiceView(self.view.bot, field)
             view.owner_id = self.view.owner_id
             await interaction.response.edit_message(
-                embed=discord.Embed(title=f"⚙️ {field.label}", description=field.help, color=0x5865F2), view=view
+                embed=discord.Embed(title=f"⚙️ {field.label}", description=(field.about or field.help)[:4000],
+                                    color=0x5865F2), view=view
             )
             return
         await interaction.response.send_modal(FieldModal(self.view.bot, field, self.view.owner_id))
@@ -215,6 +218,21 @@ class FieldModal(discord.ui.Modal):
             await interaction.response.send_message("That didn't work. Check the bot logs.", ephemeral=True)
 
 
+def _enable_note(field: rs.Field, value: str) -> str:
+    """What turning a mode on means, and what is still missing for it to work."""
+    if value != "true":
+        return ""
+    notes = {
+        "APPEALS_ENABLED": "\n**Appeals mode** will be on: warning DMs get an Appeal button and appeals appear in the mod log."
+        + ("" if rs.current("MOD_LOG_CHANNEL_ID") else "\n⚠️ No Mod log channel is set, so moderators wouldn't see appeals. Set one under Channels."),
+        "HELP_ENABLED": "\n**Help mode** will be on: members can use `/help`. Give the bot **Create Private Threads** and "
+        "**Manage Threads**, and give moderators **Manage Threads** so they can see the threads.",
+        "WELCOME_AI": "\n**AI welcome** will be on: each new member gets an AI-written welcome (one every 20 seconds at most)."
+        + ("" if rs.current("WELCOME_CHANNEL_ID") else "\n⚠️ No Welcome channel is set yet, so nothing will be posted."),
+    }
+    return notes.get(field.key, "")
+
+
 async def save_and_show(bot, interaction: discord.Interaction, field: rs.Field, raw: str, owner_id: int | None) -> None:
     def show(notice: str) -> tuple[discord.Embed, discord.ui.View]:
         embed, view = page(bot, field.group, notice)
@@ -223,7 +241,7 @@ async def save_and_show(bot, interaction: discord.Interaction, field: rs.Field, 
 
     try:
         value = rs.validate(field, raw)
-        if field.key in ("MOD_LOG_CHANNEL_ID", "RULES_CHANNEL_ID") and value:
+        if field.key in ("MOD_LOG_CHANNEL_ID", "RULES_CHANNEL_ID", "WELCOME_CHANNEL_ID", "HELP_CHANNEL_ID") and value:
             channel = interaction.guild.get_channel(int(value))
             if channel is None:
                 raise ValueError("I can't see a channel with that ID in this server.")
@@ -248,7 +266,7 @@ async def save_and_show(bot, interaction: discord.Interaction, field: rs.Field, 
         saved[field.key] = value
         rs.save_overrides(saved)
         bot.settings_pending.add(field.key)
-        note = "✅ Saved. Press **Restart now** to apply it."
+        note = "✅ Saved. Press **Restart now** to apply it." + _enable_note(field, value)
 
     log.info("Setting %s changed by %s", field.key, interaction.user.id)  # never the value
     after = rs.display(field, _value(bot, field))

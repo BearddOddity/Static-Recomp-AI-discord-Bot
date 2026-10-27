@@ -7,9 +7,26 @@ Four features that help members and save moderators time. They need no other bot
 | [Appeals](#appeals) | An **Appeal** button in their warning DM | An appeal in the mod log with **Accept** and **Reject** |
 | [Help threads](#help-threads) | `/help` opens a private thread with the bot | A **Get a human** request, and a `/feedback` list |
 | [Feedback](#feedback-on-answers) | 👍 👎 under every answer | `/feedback` lists answers marked unhelpful |
-| [Welcome message](#welcome-message) | A greeting when they join | Nothing to do |
+| [Welcome message](#welcome-message) | A greeting when they join, written by you or (if you allow it) by the AI | Nothing to do |
 
-Everything here can be set from `/settings` → **Community** (and **Moderation → Allow appeals**). See [SETTINGS.md](SETTINGS.md).
+## All of it is off until a moderator turns it on
+
+Appeals, help threads and the welcome message do nothing on a fresh install. A moderator with **Manage Server** decides what to enable:
+
+1. Type `/settings` and open the **Community** group.
+2. Choose **Appeals mode**, **Help mode** or **AI welcome**. Each one shows a plain explanation of exactly what it does, and what it needs, **before** you change anything.
+3. Pick **On** or **Off**, then press **Restart now** (the bot is back in about 20 seconds). `/status` shows which modes are on.
+
+| Mode | What it does | What it costs | Needs |
+| --- | --- | --- | --- |
+| **Appeals mode** | Warned members can contest a warning; moderators accept or reject it | Nothing | A mod-log channel |
+| **Help mode** | `/help` opens a private thread answered by the bot, with a way to call a human | AI quota, like `/ask` | Create Private Threads and Manage Threads for the bot; Manage Threads for moderators |
+| **Welcome message** | Greets new members in a channel you pick | Nothing | A welcome channel; Server Members Intent in the Developer Portal |
+| **AI welcome** | The AI writes each welcome instead of your fixed message | AI quota for each join | The welcome message set up first |
+
+Leaving a mode off never breaks anything: warnings are sent without the Appeal button, `/help` replies that Help mode is off, and no welcome is posted.
+
+Everything else is also in `/settings`. See [SETTINGS.md](SETTINGS.md).
 
 ## New permissions
 
@@ -39,7 +56,7 @@ Rules:
 - A case a moderator closed with "timeout lifted, warning kept" **can** still be appealed.
 - The appeal and its outcome are added to the case report's history.
 - If a member has DMs closed, they don't get the warning, so they have no button. They can ask a moderator directly.
-- Turn it off with `APPEALS_ENABLED=false` (the DM then tells members to message a moderator).
+- It's **off by default**. Turn on **Appeals mode** in `/settings` → Community. When it's off, warning DMs have no Appeal button and the DM tells members to message a moderator. Buttons in DMs sent while it was on say "Appeals are turned off" after you switch it off.
 
 Buttons keep working after the bot restarts, because appeals are stored in the database.
 
@@ -59,7 +76,7 @@ Good to know:
 - The bot's moderation still checks messages inside help threads.
 - Where the thread is created: set a **Help channel** in `/settings`, or leave it empty and the thread is made in the channel where the member typed `/help`.
 - `HELP_STAFF_ROLE_ID` is the role pinged by **Get a human**. Empty means only the mod-log note.
-- Turn the feature off with `HELP_ENABLED=false`.
+- It's **off by default**. Turn on **Help mode** in `/settings` → Community. While it's off, `/help` tells members that Help mode is off and who can turn it on.
 
 ## Feedback on answers
 
@@ -74,7 +91,10 @@ Only the question, the answer and the votes are stored, in `data/moderation.sqli
 
 ## Welcome message
 
-When a member joins, the bot posts a greeting in the channel you choose. It is **off** until you pick a **Welcome channel** in `/settings` → Community.
+When a member joins, the bot posts a greeting in the channel you choose. It is **off** until you pick a **Welcome channel** in `/settings` → Community. There are two ways it can be written, and you choose:
+
+- **Your message (the default).** You write it once; the bot posts it for everyone. No AI is involved and it costs nothing.
+- **AI welcome (optional, must be turned on).** The AI writes a fresh welcome for each member from your community topic and rules. See below.
 
 The text can use these placeholders:
 
@@ -85,7 +105,19 @@ The text can use these placeholders:
 | `{rules}` | A link to your rules channel |
 | `{help}` | `/help` |
 
+Your message is also what the bot falls back to if **AI welcome** is on but the AI is busy.
+
 The default message greets the member, points to the rules, and explains `/ask` and `/help`. Change it with **Welcome message**. An empty value restores the default. The message is plain text, uses no AI, and costs no AI quota. Only the new member is pinged. Bots that join don't get a welcome.
+
+### AI welcome
+
+Turn on **AI welcome** in `/settings` → Community and the AI writes each welcome. Without it, **only the message you wrote** is ever posted.
+
+- The AI gets your community topic and rules, never the new member's name. Their mention is added in front by the bot.
+- It's short (under 70 words), plain text, points to the rules channel, and mentions `/ask` (and `/help` if Help mode is on).
+- It can't ping `@everyone` or `@here`, and only the new member is pinged.
+- **Cost:** one AI request per join, at most **one every 20 seconds**. If several people join at once (a raid), the extra ones get your fixed message. It also uses your fixed message whenever the AI fails or takes more than 20 seconds.
+- It needs a Welcome channel, and the Server Members Intent below.
 
 **It needs one extra setting in the Developer Portal.** Hearing who joined is a privileged permission. Open your application at discord.com/developers → **Bot** → **Privileged Gateway Intents** and turn on **Server Members Intent**, then restart the bot.
 

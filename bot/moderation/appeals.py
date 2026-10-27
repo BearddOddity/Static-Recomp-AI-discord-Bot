@@ -112,6 +112,11 @@ class AppealManager:
         if case is None or interaction.user.id != case.user_id:
             await interaction.response.send_message("That warning isn't yours to appeal.", ephemeral=True)
             return
+        if not self.cases.settings.appeals_enabled:
+            await interaction.response.send_message(
+                "Appeals are turned off in this server. Please message a moderator directly.", ephemeral=True
+            )
+            return
         existing = self.store.get_appeal(case_id)
         if existing:
             status = {"open": "is waiting for a moderator", "accepted": "was accepted", "rejected": "was rejected"}

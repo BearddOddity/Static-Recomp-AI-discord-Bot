@@ -187,6 +187,8 @@ def make_appeal_env():
         dms.append(text)
 
     class Cases:
+        settings = SimpleNamespace(appeals_enabled=True)
+
         def log_channel(self):
             return SimpleNamespace(id=3, send=channel_send)
 
@@ -294,3 +296,86 @@ def test_new_settings_are_reachable_from_the_settings_page():
     for key in ("WELCOME_CHANNEL_ID", "WELCOME_MESSAGE", "HELP_ENABLED", "HELP_CHANNEL_ID", "HELP_STAFF_ROLE_ID", "APPEALS_ENABLED"):
         assert key in rs.FIELDS
     assert rs.validate(rs.FIELDS["APPEALS_ENABLED"], "false") == "false"
+
+
+# --- modes are opt-in and explained ---------------------------------------------------
+
+def test_appeals_and_help_are_off_until_a_moderator_turns_them_on(env):
+    settings = config.load_settings()
+    assert not settings.appeals_enabled and not settings.help_enabled
+    assert not settings.welcome_ai and settings.welcome_channel_id is None
+
+
+def test_appeals_button_stops_working_when_the_mode_is_off():
+    store, case, manager, posted, dms, refreshed = make_appeal_env()
+    manager.cases.settings = SimpleNamespace(appeals_enabled=False)
+
+    async def go():
+        owner = make_interaction(make_member(2), f"appeal:{case.id}:open")
+        await manager.handle_button(owner)
+        return owner
+
+    owner = run(go())
+    assert "turned off" in owner.response.sent[0][0] and not owner.response.modals
+
+
+def test_each_mode_is_explained_to_moderators():
+    from bot import runtime_settings as rs, settings_ui
+
+    for key in ("APPEALS_ENABLED", "HELP_ENABLED", "WELCOME_AI"):
+        field = rs.FIELDS[key]
+        assert field.group == "Community" and field.kind == "bool" and len(field.about) > 150
+        assert not field.admin  # moderators (Manage Server) can decide
+    assert "off" in rs.GROUP_NOTES["Community"] and "Appeals mode" in rs.GROUP_NOTES["Community"]
+    assert "Manage Threads" in rs.FIELDS["HELP_ENABLED"].about
+
+    bot = SimpleNamespace(settings_pending=set(), min_confidence=0.75, chat_context=8)
+
+    async def build():
+        embed, _ = settings_ui.page(bot, "Community")
+        assert "Help mode" in embed.description and "Welcome" in embed.description
+        view = settings_ui.ChoiceView(bot, rs.FIELDS["APPEALS_ENABLED"])
+        assert view.children[0].options
+
+    asyncio.run(build())
+    assert "Appeal" in settings_ui._enable_note(rs.FIELDS["APPEALS_ENABLED"], "true")
+    assert "Create Private Threads" in settings_ui._enable_note(rs.FIELDS["HELP_ENABLED"], "true")
+    assert settings_ui._enable_note(rs.FIELDS["HELP_ENABLED"], "false") == ""
+
+
+# --- AI welcome ---------------------------------------------------------------------------
+
+def make_welcome_bot(reply="Welcome aboard! Read <#9>.", fail=False, help_enabled=False):
+    calls = []
+
+    class AI:
+        async def complete(self, messages):
+            calls.append(messages)
+            if fail:
+                raise RuntimeError("provider down")
+            return reply
+
+    guild = SimpleNamespace(id=1, name="Recomp", me=SimpleNamespace(display_name="Bot"))
+    member = SimpleNamespace(mention="<@5>", guild=guild)
+    bot = SimpleNamespace(
+        ai=AI(), last_ai_welcome=-1e9, rules=SimpleNamespace(get=lambda gid: "Be kind."),
+        settings=SimpleNamespace(system_prompt="", community_about="static recompilation", help_enabled=help_enabled),
+    )
+    return bot, member, calls
+
+
+def test_ai_welcome_is_rate_limited_and_falls_back_to_the_moderators_message():
+    bot, member, calls = make_welcome_bot(reply="Hi all @everyone and @here, welcome!")
+    first = run(community.ai_welcome(bot, member, "<#9>"))
+    assert first.startswith("<@5> ") and "@everyone" not in first and "@here" not in first
+    system = " ".join(m.content for m in calls[0] if m.role == "system")
+    assert "<#9>" in calls[0][-1].content and "Be kind." in system and "static recompilation" in system
+    assert run(community.ai_welcome(bot, member, "<#9>")) is None  # too soon: use the fixed message
+
+    failing, member, _ = make_welcome_bot(fail=True)
+    assert run(community.ai_welcome(failing, member, "<#9>")) is None
+    empty, member, _ = make_welcome_bot(reply="   ")
+    assert run(community.ai_welcome(empty, member, "<#9>")) is None
+    helping, member, calls = make_welcome_bot(help_enabled=True)
+    run(community.ai_welcome(helping, member, "<#9>"))
+    assert "/help" in calls[0][-1].content

@@ -3,9 +3,13 @@ message. Button custom_ids are "fb:up", "fb:down" and "tk:<thread id>:close|huma
 they keep working after a restart (everything is stored in SQLite).
 """
 
+import asyncio
 import logging
+import time
 
 import discord
+
+from .assist import AskContext, build_messages, persona_prompt
 
 from .moderation.cases import CaseStore, Ticket
 
@@ -91,7 +95,9 @@ async def open_help_thread(bot, interaction: discord.Interaction, question: str)
     """The /help command: a private thread with the member, answered by the bot."""
     settings, store = bot.settings, bot.store
     if not settings.help_enabled:
-        await interaction.response.send_message("Help threads are turned off in this server.", ephemeral=True)
+        await interaction.response.send_message(
+            "Help mode is off in this server. A moderator can turn it on in `/settings` → Community.", ephemeral=True
+        )
         return
     existing = store.open_ticket_for(interaction.guild_id, interaction.user.id)
     if existing:
@@ -194,3 +200,38 @@ def render_welcome(template: str, member_mention: str, server: str, rules: str) 
         .replace("{rules}", rules)
         .replace("{help}", "`/help`")
     )[:1900]
+
+
+WELCOME_AI_GAP_SECONDS = 20  # at most one AI welcome this often; a raid gets the fixed message
+WELCOME_AI_TIMEOUT = 20
+WELCOME_PROMPT = (
+    "A new member just joined the server. Write a short, warm welcome message for them, under 70 words, in "
+    "plain text with no headings. Say what the community is about, point them to {rules} for the rules, and "
+    "mention they can ask you questions by @mentioning you or with /ask{help}. Don't use their name, don't ping "
+    "@everyone or @here, and don't promise anything the rules don't say."
+)
+
+
+async def ai_welcome(bot, member: discord.Member, rules_mention: str) -> str | None:
+    """An AI-written welcome, or None when it's too soon after the last one or the AI fails,
+    in which case the moderator's own message is used."""
+    now = time.monotonic()
+    if now - bot.last_ai_welcome < WELCOME_AI_GAP_SECONDS:
+        return None
+    bot.last_ai_welcome = now
+    guild = member.guild
+    context = AskContext(
+        bot_name=guild.me.display_name, server=guild.name, now=discord.utils.utcnow(),
+    )
+    prompt = WELCOME_PROMPT.format(rules=rules_mention, help=" or open a private thread with /help" if bot.settings.help_enabled else "")
+    messages = build_messages(
+        persona_prompt(bot.settings.system_prompt, context, bot.settings.community_about),
+        prompt, [], rules=bot.rules.get(guild.id), context=context,
+    )
+    try:
+        text = await asyncio.wait_for(bot.ai.complete(messages), WELCOME_AI_TIMEOUT)
+    except Exception:
+        log.warning("AI welcome failed; using the fixed message", exc_info=True)
+        return None
+    text = text.strip().replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
+    return f"{member.mention} {text}"[:1900] if text else None

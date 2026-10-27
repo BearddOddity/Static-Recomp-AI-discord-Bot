@@ -94,12 +94,13 @@ class Settings:
     ai_backup_model: str = ""
     ai_backup_vision_model: str = ""  # used for moderation (images) when set
     ai_backup_base_url: str = ""  # only for openai_compatible
-    appeals_enabled: bool = True  # warned members get an Appeal button in their DM
-    help_enabled: bool = True  # /help opens a private help thread
+    appeals_enabled: bool = False  # Appeals mode: warned members get an Appeal button in their DM
+    help_enabled: bool = False  # Help mode: /help opens a private help thread
     help_channel_id: int | None = None  # where those threads are made (empty = where /help is used)
     help_staff_role_id: int | None = None  # pinged by "Get a human"
     welcome_channel_id: int | None = None  # empty = no welcome message (needs the Server Members Intent)
     welcome_message: str = DEFAULT_WELCOME
+    welcome_ai: bool = False  # let the AI write each welcome (otherwise only welcome_message is used)
 
 
 # Settings each provider cannot work without, checked at startup so a missing
@@ -266,10 +267,11 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ai_backup_model=os.getenv("AI_BACKUP_MODEL", "").strip(),
         ai_backup_vision_model=os.getenv("AI_BACKUP_VISION_MODEL", "").strip(),
         ai_backup_base_url=os.getenv("AI_BACKUP_BASE_URL", "").strip(),
-        appeals_enabled=_flag("APPEALS_ENABLED", True),
-        help_enabled=_flag("HELP_ENABLED", True),
+        appeals_enabled=_flag("APPEALS_ENABLED", False),
+        help_enabled=_flag("HELP_ENABLED", False),
         help_channel_id=_optional_int("HELP_CHANNEL_ID"),
         help_staff_role_id=_optional_int("HELP_STAFF_ROLE_ID"),
         welcome_channel_id=_optional_int("WELCOME_CHANNEL_ID"),
         welcome_message=_get("WELCOME_MESSAGE", DEFAULT_WELCOME)[:1500],
+        welcome_ai=_flag("WELCOME_AI", False),
     )

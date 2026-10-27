@@ -95,6 +95,7 @@ class AssistantBot(discord.Client):
         self.rules = RulesBook(self.store, settings.rules_channel_id)
         self.cases = CaseManager(self, self.store, settings)
         self.appeals = AppealManager(self, self.store, self.cases)
+        self.last_ai_welcome = -1e9  # when the AI last wrote a welcome
         self._ticket_last: dict[int, int] = {}  # help thread -> the bot's latest answer there
         self.notice = ""  # shown to moderators once, after startup
         self._renew_task: asyncio.Task | None = None
@@ -286,9 +287,12 @@ class AssistantBot(discord.Client):
         if member.bot or not isinstance(channel, discord.abc.Messageable):
             return
         rules = self.rules.channel_for(member.guild)
-        text = community.render_welcome(
-            self.settings.welcome_message, member.mention, member.guild.name, rules.mention if rules else "the rules"
-        )
+        rules_mention = rules.mention if rules else "the rules"
+        text = None
+        if self.settings.welcome_ai:  # off unless a moderator turned it on
+            text = await community.ai_welcome(self, member, rules_mention)
+        if text is None:
+            text = community.render_welcome(self.settings.welcome_message, member.mention, member.guild.name, rules_mention)
         try:
             await channel.send(text, allowed_mentions=discord.AllowedMentions(users=[member]))
         except discord.HTTPException:
@@ -745,6 +749,15 @@ async def status(interaction: discord.Interaction) -> None:
         f"{ok} Docs: {len(bot.docs)} sections from {len(bot.docs_specs)} sources" if len(bot.docs)
         else f"{bad} No docs loaded yet (DOCS_REPOS, or wait a minute after startup)"
     )
+    on, off = ok, "➖"
+    lines.append(f"{on if settings.appeals_enabled else off} Appeals mode: "
+                 + ("on, warned members can appeal" if settings.appeals_enabled else "off (turn on in /settings → Community)"))
+    lines.append(f"{on if settings.help_enabled else off} Help mode: "
+                 + ("on, members can use /help" if settings.help_enabled else "off (turn on in /settings → Community)"))
+    welcome = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
+    lines.append(f"{on if welcome else off} Welcome: "
+                 + (f"{welcome.mention}, written by {'the AI' if settings.welcome_ai else 'your message'}" if welcome
+                    else "off (pick a channel in /settings → Community)"))
     lines.append(f"{ok} Warnings: timeout pending review at {settings.mod_warn_limit}; {bot.store.count_in_review(guild.id)} case(s) waiting for review")
 
     try:

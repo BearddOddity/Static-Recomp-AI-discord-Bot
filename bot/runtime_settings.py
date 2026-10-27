@@ -37,11 +37,17 @@ class Field:
     low: float = 0
     high: float = 0
     live: bool = False  # applied at once and stored by /tune, no restart
+    about: str = ""  # a longer explanation shown before the setting is changed
     max_length: int = 300
 
     @property
     def secret(self) -> bool:
         return self.kind == "secret"
+
+
+ABOUT_APPEALS = "**Appeals mode** lets a warned member contest a warning. When it's on, the warning DM has an *Appeal this warning* button. The member explains what happened, and the appeal appears in your mod log with **Accept** and **Reject** buttons. Accepting removes the warning and lifts any timeout; rejecting leaves the case as it is. Each case can be appealed once, and the member is told the result by DM. When it's off, warnings are sent without the button. Needs a Mod log channel. Applies after a restart."
+ABOUT_HELP = "**Help mode** lets members type `/help` to open a private thread where the bot answers from your docs. They can press *Get a human* to bring in a moderator (the bot then stops answering there) and *Close* when done. Each member has one open thread at a time. The bot needs **Create Private Threads** and **Manage Threads**, and moderators need **Manage Threads** to see private threads. It uses AI quota like /ask. When it's off, `/help` tells members it's disabled. Applies after a restart."
+ABOUT_WELCOME_AI = "**AI welcome** makes the bot write a fresh, friendly welcome for each new member from your community topic and rules, instead of your fixed message. It uses AI quota for each join (at most one every 20 seconds; busier moments use your fixed message) and falls back to your fixed message if the AI fails. When it's off, only the **Welcome message** you wrote is ever posted. Needs a Welcome channel. Applies after a restart."
 
 
 def _f(*args, **kwargs) -> Field:
@@ -84,7 +90,6 @@ _FIELDS = [
     _f("MOD_WARN_LIMIT", "Warnings before timeout", "Moderation", "int", "1-20", low=1, high=20),
     _f("MOD_WARN_EXPIRY_DAYS", "Warning expiry (days)", "Moderation", "float", "0 = never expire", low=0, high=3650),
     _f("MOD_DM_WARNINGS", "DM members on warning", "Moderation", "bool", "Send the member a DM with the reason"),
-    _f("APPEALS_ENABLED", "Allow appeals", "Moderation", "bool", "Warned members get an Appeal button in their DM"),
     _f("MOD_EXEMPT_ROLE_IDS", "Exempt roles", "Moderation", "ids", "Role IDs that are never moderated (comma separated)"),
     # Assistant
     _f("COMMUNITY_ABOUT", "Community topic", "Assistant", "text", "What the server is about, in a few words", max_length=400),
@@ -102,12 +107,17 @@ _FIELDS = [
        "Empty = no welcome. Needs the Server Members Intent in the Developer Portal"),
     _f("WELCOME_MESSAGE", "Welcome message", "Community", "paragraph",
        "{user} {server} {rules} are filled in (empty = the default)", max_length=1500),
-    _f("HELP_ENABLED", "Help threads", "Community", "bool", "Let members open a private help thread with /help"),
+    _f("WELCOME_AI", "AI welcome", "Community", "bool", "Let the AI write each welcome instead of your message", about=ABOUT_WELCOME_AI),
+    _f("APPEALS_ENABLED", "Appeals mode", "Community", "bool", "Warned members can appeal from their DM", about=ABOUT_APPEALS),
+    _f("HELP_ENABLED", "Help mode", "Community", "bool", "Members open private help threads with /help", about=ABOUT_HELP),
     _f("HELP_CHANNEL_ID", "Help channel", "Community", "channel", "Where help threads are made (empty = where /help is used)"),
     _f("HELP_STAFF_ROLE_ID", "Help staff role", "Community", "id", "Pinged when a member asks for a human"),
 ]
 FIELDS: dict[str, Field] = {f.key: f for f in _FIELDS}
 assert len(FIELDS) == len(_FIELDS)
+
+
+GROUP_NOTES = {'Community': '**Appeals mode:** a warned member can contest a warning with a button in their DM; moderators accept or reject it in the mod log.\n**Help mode:** members open a private help thread with `/help`; the bot answers from your docs and a moderator can step in.\n**Welcome:** a message when someone joins. You write it by default; **AI welcome** lets the AI write it instead.\nAll three are **off** until you turn them on. Choose a setting below to read what it does first.'}
 
 
 def settings_path() -> Path:

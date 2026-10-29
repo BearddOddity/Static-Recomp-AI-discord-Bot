@@ -46,7 +46,8 @@ def test_case_round_trip_and_warning_expiry(store):
     case.timed_out = True
     store.save(case)
     loaded = store.get(case.id)
-    assert loaded.reasons == ["fake giveaway"] and loaded.urls == ["kegwin.com"]
+    assert loaded.reasons == ["fake giveaway"]
+    assert case.urls == ["kegwin.com"] and loaded.urls == []  # links are not stored
     assert loaded.actions == ["message deleted"] and loaded.timed_out and loaded.status == "review"
     assert [c.id for c in store.cases_in_review()] == [case.id]
 
@@ -125,6 +126,7 @@ class FakeDiscord:
         self.log_channel.id = 99
         self.log_channel.send = AsyncMock(return_value=MagicMock(id=500))
         self.log_channel.get_partial_message.return_value.edit = AsyncMock()
+        self.log_channel.get_partial_message.return_value.fetch = AsyncMock(return_value=MagicMock(embeds=[]))
         self.guild = MagicMock(spec=discord.Guild)
         self.guild.id = 1
         self.guild.name = "Recomp"

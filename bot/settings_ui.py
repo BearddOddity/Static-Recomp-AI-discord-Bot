@@ -241,7 +241,7 @@ async def save_and_show(bot, interaction: discord.Interaction, field: rs.Field, 
 
     try:
         value = rs.validate(field, raw)
-        if field.key in ("MOD_LOG_CHANNEL_ID", "RULES_CHANNEL_ID", "WELCOME_CHANNEL_ID", "HELP_CHANNEL_ID") and value:
+        if field.key in ("MOD_LOG_CHANNEL_ID", "ACTIVITY_LOG_CHANNEL_ID", "RULES_CHANNEL_ID", "WELCOME_CHANNEL_ID", "HELP_CHANNEL_ID") and value:
             channel = interaction.guild.get_channel(int(value))
             if channel is None:
                 raise ValueError("I can't see a channel with that ID in this server.")

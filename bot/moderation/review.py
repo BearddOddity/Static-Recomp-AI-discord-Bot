@@ -123,17 +123,29 @@ def _status_line(case: Case, warning_count: int, settings: Settings) -> str:
 
 
 def build_embed(
-    case: Case, warning_count: int, settings: Settings, member: discord.abc.User | None = None
+    case: Case,
+    warning_count: int,
+    settings: Settings,
+    member: discord.abc.User | None = None,
+    posted: discord.Embed | None = None,
 ) -> discord.Embed:
+    """posted is the report already in the mod log. The database keeps no message text
+    or links, so a refresh takes the quote and links from that report instead."""
     emoji, color = LOOKS.get(case.label, ("⚠️", discord.Color.orange()))
     if case.status == "closed":
         color = CLOSED_COLOR
     elif case.status == "review":
         color = discord.Color.red() if case.label != "hate_speech" else color
 
+    quoted = quote(case.content)
+    links = "\n".join(f"`{u[:100]}`" for u in case.urls[:5])[:1024] if case.urls else ""
+    if posted is not None:
+        quoted = (posted.description or "").partition("\n\n")[2] or quoted
+        links = next((f.value for f in posted.fields if f.name == "🔗 Links"), links)
+
     embed = discord.Embed(
         title=f"{emoji} Case #{case.id} · {LABEL_NAMES.get(case.label, case.label)}",
-        description=f"{_status_line(case, warning_count, settings)}\n\n{quote(case.content)}",
+        description=f"{_status_line(case, warning_count, settings)}\n\n{quoted}",
         color=color,
         timestamp=datetime.fromtimestamp(case.created_at, timezone.utc) if case.created_at else discord.utils.utcnow(),
     )
@@ -155,9 +167,9 @@ def build_embed(
         embed.add_field(name="🔍 Why it was flagged", value="\n".join(f"• {r}" for r in case.reasons[:6])[:1024], inline=False)
     if case.confidence and case.label != "manual":
         embed.add_field(name="🎯 Confidence", value=confidence_meter(case.confidence), inline=True)
-    if case.urls:
+    if links:
         # In code formatting so the links can't be clicked from the report.
-        embed.add_field(name="🔗 Links", value="\n".join(f"`{u[:100]}`" for u in case.urls[:5])[:1024], inline=True)
+        embed.add_field(name="🔗 Links", value=links, inline=True)
     if case.actions:
         start = max(0, len(case.actions) - 8)
         steps = "\n".join(f"`{n}` {a}" for n, a in enumerate(case.actions[start:], start=start + 1))
@@ -523,7 +535,11 @@ class CaseManager:
             return
         try:
             message = channel.get_partial_message(case.log_message_id)
-            embed = build_embed(case, self.warning_count(case.guild_id, case.user_id), self.settings, self._member(case))
+            posted = await message.fetch()
+            embed = build_embed(
+                case, self.warning_count(case.guild_id, case.user_id), self.settings, self._member(case),
+                posted=posted.embeds[0] if posted.embeds else None,
+            )
             await message.edit(embed=embed, view=build_view(case))
         except discord.HTTPException:
             log.exception("Could not update the report for case #%s", case.id)

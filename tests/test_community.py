@@ -73,7 +73,7 @@ def test_appeals_votes_and_tickets_are_stored():
     assert store.vote_counts(10) == (1, 1)
     assert store.downvoted_answers(1) == []  # one up, one down: not "unhelpful"
     store.vote(10, 5, -1)
-    assert [a.question for a in store.downvoted_answers(1)] == ["how do I X?"]
+    assert [a.question for a in store.downvoted_answers(1)] == [""]  # the question is not stored
     assert store.downvoted_answers(99) == []  # other servers' answers aren't shown
 
     ticket = store.create_ticket(77, 1, 2, "help me")
@@ -167,7 +167,7 @@ def test_ticket_buttons_close_and_get_a_human():
     assert "Only the member" in stranger.response.sent[0][0]
     assert any("<@&555>" in s for s in sent if isinstance(s, str))  # the staff role was pinged
     assert "already asked" in again.response.sent[0][0]
-    assert notes and "recompile help" in notes[0]
+    assert notes and "Help requested" in notes[0] and "recompile help" not in notes[0]  # topic is not stored
     assert store.get_ticket(7).status == "closed"
     assert ("edit", {"archived": True, "locked": True}) in sent
 
@@ -224,7 +224,7 @@ def test_member_appeal_reaches_moderators_once():
     assert "isn't yours" in stranger.response.sent[0][0]
     assert len(owner.response.modals) == 1  # the form opened for the member
     assert len(posted) == 1 and posted[0]["view"] is not None  # moderators got Accept / Reject
-    assert store.get_appeal(case.id).text.startswith("I was quoting")
+    assert store.get_appeal(case.id).text == ""  # the appeal's words are not stored, only posted
     assert "waiting for a moderator" in again.response.sent[0][0]
     assert refreshed == [case.id]
 
@@ -239,14 +239,14 @@ def test_moderators_accept_or_reject_appeals():
         pass
 
     async def go():
-        nobody = make_interaction(make_member(8), f"appeal:{case.id}:accept", message=SimpleNamespace(edit=edit))
+        nobody = make_interaction(make_member(8), f"appeal:{case.id}:accept", message=SimpleNamespace(edit=edit, embeds=[]))
         await manager.handle_button(nobody)  # no Moderate Members
         mod = make_member(8, moderate_members=True)
-        accept = make_interaction(mod, f"appeal:{case.id}:accept", message=SimpleNamespace(edit=edit))
+        accept = make_interaction(mod, f"appeal:{case.id}:accept", message=SimpleNamespace(edit=edit, embeds=[]))
         await manager.handle_button(accept)
-        reject = make_interaction(mod, f"appeal:{other.id}:reject", message=SimpleNamespace(edit=edit))
+        reject = make_interaction(mod, f"appeal:{other.id}:reject", message=SimpleNamespace(edit=edit, embeds=[]))
         await manager.handle_button(reject)
-        twice = make_interaction(mod, f"appeal:{case.id}:reject", message=SimpleNamespace(edit=edit))
+        twice = make_interaction(mod, f"appeal:{case.id}:reject", message=SimpleNamespace(edit=edit, embeds=[]))
         await manager.handle_button(twice)
         return nobody, twice
 

@@ -101,6 +101,8 @@ class Settings:
     welcome_channel_id: int | None = None  # empty = no welcome message (needs the Server Members Intent)
     welcome_message: str = DEFAULT_WELCOME
     welcome_ai: bool = False  # let the AI write each welcome (otherwise only welcome_message is used)
+    # Bot notices (updates, settings changes, help pings, AI problems). Case reports stay in the mod log.
+    activity_log_channel_id: int | None = None  # empty = the mod log, as before
 
 
 # Settings each provider cannot work without, checked at startup so a missing
@@ -274,4 +276,5 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         welcome_channel_id=_optional_int("WELCOME_CHANNEL_ID"),
         welcome_message=_get("WELCOME_MESSAGE", DEFAULT_WELCOME)[:1500],
         welcome_ai=_flag("WELCOME_AI", False),
+        activity_log_channel_id=_optional_int("ACTIVITY_LOG_CHANNEL_ID"),
     )

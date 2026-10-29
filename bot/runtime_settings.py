@@ -56,7 +56,9 @@ def _f(*args, **kwargs) -> Field:
 
 _FIELDS = [
     # Channels
-    _f("MOD_LOG_CHANNEL_ID", "Mod log channel", "Channels", "channel", "Where case reports and alerts are posted"),
+    _f("MOD_LOG_CHANNEL_ID", "Mod log channel", "Channels", "channel", "Where case reports and appeals are posted"),
+    _f("ACTIVITY_LOG_CHANNEL_ID", "Activity log channel", "Channels", "channel",
+       "Bot notices: updates, settings changes, help pings, AI problems. Empty = the mod log"),
     _f("RULES_CHANNEL_ID", "Rules channel", "Channels", "channel", "The channel the bot reads the rules from (empty = find it)"),
     _f("ASSISTANT_CHANNEL_IDS", "Assistant channels", "Channels", "ids", "Channels where the bot answers every message (IDs, comma separated)"),
     _f("DISCORD_GUILD_ID", "Server ID", "Channels", "id", "Makes slash commands appear at once (restart needed)"),

@@ -52,7 +52,7 @@ def downvoted_embed(store: CaseStore, guild_id: int) -> discord.Embed:
         link = f"https://discord.com/channels/{answer.guild_id}/{answer.channel_id}/{answer.message_id}"
         embed.add_field(
             name=f"👎 {answer.down} · 👍 {answer.up}"[:256],
-            value=(f"**Q:** {answer.question[:200]}\n**A:** {answer.answer[:300]}\n[Jump to answer]({link})")[:1024],
+            value=(f"**A:** {answer.answer[:300]}\n[Jump to answer]({link})")[:1024],
             inline=False,
         )
     embed.set_footer(text="Questions the docs don't cover well are good candidates for new documentation.")
@@ -187,7 +187,8 @@ async def handle_ticket_button(bot, interaction: discord.Interaction) -> None:
         f"🙋 {ping}{user.mention} would like a human to look at this. I'll stop answering here so you can talk.",
         allowed_mentions=discord.AllowedMentions(roles=[discord.Object(id=role_id)] if role_id else [], users=[user]),
     )
-    await bot.notify_mods(f"🙋 Help requested by <@{ticket.user_id}> in {thread.mention}: {ticket.topic[:200]}")
+    # The question itself is only in the thread, not in the activity log.
+    await bot.notify_mods(f"🙋 Help requested by <@{ticket.user_id}> in {thread.mention}")
 
 
 # --- welcome message ---------------------------------------------------------

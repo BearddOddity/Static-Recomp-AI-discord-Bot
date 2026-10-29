@@ -246,7 +246,10 @@ class AssistantBot(discord.Client):
                 return
 
     async def notify_mods(self, text: str) -> None:
-        channel = self.get_channel(self.settings.mod_log_channel_id) if self.settings.mod_log_channel_id else None
+        """Post a bot notice to the activity log (or the mod log when none is set).
+        Case reports never go here; they stay in the mod log."""
+        channel_id = self.settings.activity_log_channel_id or self.settings.mod_log_channel_id
+        channel = self.get_channel(channel_id) if channel_id else None
         if isinstance(channel, discord.abc.Messageable):
             try:
                 await channel.send(text[:2000])

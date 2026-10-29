@@ -46,11 +46,13 @@ def decision_view(case_id: int) -> discord.ui.View:
     return view
 
 
-def appeal_embed(appeal: Appeal, case: Case) -> discord.Embed:
+def appeal_embed(appeal: Appeal, case: Case, text: str | None = None) -> discord.Embed:
+    """text is the appeal's words, passed in when the database no longer has them."""
     colors = {"open": discord.Color.gold(), "accepted": discord.Color.green(), "rejected": discord.Color.dark_grey()}
+    body = appeal.text if text is None else text
     embed = discord.Embed(
         title=f"✉️ Appeal for case #{case.id}",
-        description="> " + "\n> ".join(appeal.text.replace("@", "@​").splitlines())[:1800],
+        description="> " + "\n> ".join(body.replace("@", "@​").splitlines())[:1800],
         color=colors.get(appeal.status, discord.Color.gold()),
         timestamp=discord.utils.utcnow(),
     )
@@ -189,8 +191,12 @@ class AppealManager:
             await self.cases.refresh_report(case)
         self.store.save_appeal(appeal)
 
+        # The appeal's words are only in the post, so read them back from it.
+        embeds = interaction.message.embeds
+        posted = (embeds[0].description or "") if embeds else ""
+        words = "\n".join(line[2:] if line.startswith("> ") else line for line in posted.splitlines())
         try:
-            await interaction.message.edit(embed=appeal_embed(appeal, case), view=None)
+            await interaction.message.edit(embed=appeal_embed(appeal, case, text=words.replace("​", "")), view=None)
         except discord.HTTPException:
             log.warning("Could not update the appeal message for case #%s", case.id)
         await self._tell_member(case, appeal, accept)

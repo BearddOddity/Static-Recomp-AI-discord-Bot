@@ -165,6 +165,17 @@ class Warning:
     created_at: float
 
 
+# The database keeps no member text: message content, links, appeal text, the
+# question behind an answer and a help topic are written only to Discord (the case
+# report, the appeal post, the help thread). Older rows are cleared on startup.
+PURGE = """
+UPDATE cases SET content = '', urls = '[]' WHERE content != '' OR urls != '[]';
+UPDATE appeals SET text = '' WHERE text != '';
+UPDATE answers SET question = '' WHERE question != '';
+UPDATE tickets SET topic = '' WHERE topic != '';
+"""
+
+
 class CaseStore:
     def __init__(self, path: str):
         if path != ":memory:":
@@ -172,6 +183,7 @@ class CaseStore:
         self._db = sqlite3.connect(path)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        self._db.executescript(PURGE)
         self._db.commit()
 
     def close(self) -> None:
@@ -193,14 +205,18 @@ class CaseStore:
         urls: list[str] = (),
         created_by: int | None = None,
     ) -> Case:
+        # content and urls are not stored; the returned case carries them for this run only.
         cursor = self._db.execute(
             "INSERT INTO cases (guild_id, user_id, channel_id, message_id, label, confidence, reasons,"
-            " content, urls, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'warned', ?, ?)",
+            " status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'warned', ?, ?)",
             (guild_id, user_id, channel_id, message_id, label, confidence, json.dumps(list(reasons)),
-             content, json.dumps(list(urls)), created_by, time.time()),
+             created_by, time.time()),
         )
         self._db.commit()
-        return self.get(cursor.lastrowid)
+        case = self.get(cursor.lastrowid)
+        assert case is not None  # the row was just inserted
+        case.content, case.urls = content, list(urls)
+        return case
 
     def get(self, case_id: int) -> Case | None:
         row = self._db.execute("SELECT * FROM cases WHERE id = ?", (case_id,)).fetchone()
@@ -271,13 +287,16 @@ class CaseStore:
         """None when this case already has an appeal: one per case."""
         try:
             self._db.execute(
-                "INSERT INTO appeals (case_id, user_id, text, status, created_at) VALUES (?, ?, ?, 'open', ?)",
-                (case_id, user_id, text, time.time()),
+                "INSERT INTO appeals (case_id, user_id, text, status, created_at) VALUES (?, ?, '', 'open', ?)",
+                (case_id, user_id, time.time()),
             )
         except sqlite3.IntegrityError:
             return None
         self._db.commit()
-        return self.get_appeal(case_id)
+        appeal = self.get_appeal(case_id)
+        assert appeal is not None  # the row was just inserted
+        appeal.text = text  # kept in memory for the post; the database stores no appeal text
+        return appeal
 
     def get_appeal(self, case_id: int) -> Appeal | None:
         row = self._db.execute("SELECT * FROM appeals WHERE case_id = ?", (case_id,)).fetchone()
@@ -296,10 +315,11 @@ class CaseStore:
 
     def record_answer(self, message_id: int, guild_id: int | None, channel_id: int | None, user_id: int,
                       question: str, answer: str) -> None:
+        # The member's question is not stored, only the answer the bot gave.
         self._db.execute(
             "INSERT OR REPLACE INTO answers (message_id, guild_id, channel_id, user_id, question, answer, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (message_id, guild_id, channel_id, user_id, question[:1000], answer[:3000], time.time()),
+            " VALUES (?, ?, ?, ?, '', ?, ?)",
+            (message_id, guild_id, channel_id, user_id, answer[:3000], time.time()),
         )
         self._db.commit()
 
@@ -349,11 +369,14 @@ class CaseStore:
 
     def create_ticket(self, thread_id: int, guild_id: int, user_id: int, topic: str) -> Ticket:
         self._db.execute(
-            "INSERT INTO tickets (thread_id, guild_id, user_id, topic, status, created_at) VALUES (?, ?, ?, ?, 'open', ?)",
-            (thread_id, guild_id, user_id, topic[:500], time.time()),
+            "INSERT INTO tickets (thread_id, guild_id, user_id, topic, status, created_at) VALUES (?, ?, ?, '', 'open', ?)",
+            (thread_id, guild_id, user_id, time.time()),
         )
         self._db.commit()
-        return self.get_ticket(thread_id)
+        ticket = self.get_ticket(thread_id)
+        assert ticket is not None  # the row was just inserted
+        ticket.topic = topic[:500]  # in memory only, for the notice posted right away
+        return ticket
 
     def get_ticket(self, thread_id: int) -> Ticket | None:
         row = self._db.execute("SELECT * FROM tickets WHERE thread_id = ?", (thread_id,)).fetchone()

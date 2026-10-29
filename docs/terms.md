@@ -4,7 +4,7 @@ title: Terms of Service
 
 # Terms of Service
 
-**Last updated:** [DATE]
+**Last updated:** [10/29/2026]
 
 These terms apply to the **Static Recomp AI Discord Bot** (the "Bot"). The Bot runs in the Discord server **[SERVER NAME]** (the "Server") and is run by **[OPERATOR NAME]** ("we", "us").
 

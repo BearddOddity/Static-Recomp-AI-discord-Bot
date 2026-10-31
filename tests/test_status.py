@@ -114,6 +114,17 @@ def test_every_problem_says_how_to_fix_it(make_bot):
     assert len(fixes) >= 6
 
 
+def test_thread_permissions_only_matter_with_help_mode(make_bot):
+    perms = {name: True for name, on in REQUIRED_PERMISSIONS if on}
+    perms.update(create_private_threads=False, manage_threads=False)  # invited with an older link
+    checks = run(status_checks(make_bot(), FakeGuild(perms, {})))
+    assert by_text(checks, "All the permissions").state == OK
+    note = by_text(checks, "Help mode needs")
+    assert note.state == "off" and "Create Private Threads" in note.text and "Manage Threads" in note.text
+    checks = run(status_checks(make_bot(HELP_ENABLED="true"), FakeGuild(perms, {})))
+    assert "Manage Threads" in by_text(checks, "Missing permissions").text
+
+
 def test_no_guild_id_is_a_tip_not_a_problem(make_bot):
     checks = run(status_checks(make_bot(), FakeGuild({}, {})))
     lock = by_text(checks, "Locked to this server")

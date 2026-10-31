@@ -15,6 +15,7 @@
 ### /status
 - `/status` is now a checklist. Its title says **✅ All good** or how many things need fixing. Every ❌ problem comes first with the exact step that fixes it (including a ready-made re-invite link for missing permissions), then what works, then optional features that are off.
 - `/status` no longer blames the bot for permissions Discord gives `@everyone` by default (Create Invite, Mention @everyone), no longer calls a missing `DISCORD_GUILD_ID` a problem (the bot already stays in its first server), and says when settings saved in `/settings` are waiting for a restart.
+- Bots invited before `/help` threads existed aren't told they're missing permissions until Help mode is on. Missing permissions now say the bot was probably invited with an older link, and give the link that updates its role.
 
 ### Guardrails
 - A guardrails file gives the AI the owners' own rules: `[instructions]` it always follows, `[redirect]` fixed answers for set questions (no AI call), `[topic]` extra guidance on tricky subjects, `[block questions]` and `[block answers]` keywords, and `[moderation]` guidance for the moderation AI. Keywords or regular expressions; re-read on every change, no restart. See [docs/GUARDRAILS.md](docs/GUARDRAILS.md) and `guardrails.example.txt`.

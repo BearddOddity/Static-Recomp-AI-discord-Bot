@@ -164,8 +164,11 @@ class Role:
         return self.position < other.position
 
 
-def guild_with(bot_perms, roles, bot_position=5):
-    me = SimpleNamespace(guild_permissions=discord.Permissions(**bot_perms), top_role=Role("Bot", bot_position))
+def guild_with(bot_perms, roles, bot_position=5, everyone=None):
+    bot_role = Role("Bot", bot_position, **bot_perms)
+    everyone_role = Role("@everyone", 0, default=True, **(everyone or {}))
+    me = SimpleNamespace(guild_permissions=discord.Permissions(**bot_perms, **(everyone or {})),
+                         top_role=bot_role, roles=[everyone_role, bot_role])
     return SimpleNamespace(me=me, roles=roles)
 
 
@@ -181,6 +184,12 @@ def test_administrator_and_extra_permissions_are_flagged():
     assert "Administrator" in safety_problems(guild_with({"administrator": True}, []))[0]
     problem = safety_problems(guild_with({"manage_roles": True, "manage_webhooks": True}, []))[0]
     assert "Manage Roles" in problem and "Manage Webhooks" in problem
+
+
+def test_what_everyone_gets_is_not_blamed_on_the_bot():
+    # Discord gives @everyone Create Invite and Mention @everyone by default.
+    defaults = {"create_instant_invite": True, "mention_everyone": True}
+    assert safety_problems(guild_with({"view_channel": True}, [], everyone=defaults)) == []
 
 
 def test_bot_above_staff_is_flagged():

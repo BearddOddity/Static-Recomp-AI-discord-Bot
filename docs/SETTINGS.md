@@ -37,7 +37,7 @@ Two settings apply at once with no restart: **Confidence needed** and **Chat con
 
 **Community:** welcome channel and message, **AI welcome**, **Appeals mode**, **Help mode**, the help channel and the staff role pinged by "Get a human" ([details](COMMUNITY.md)). Appeals, Help and AI welcome are off until you turn them on, and each one explains itself before you change it.
 
-**Assistant:** community topic, personality (🔒), chat context, cooldown, answers per minute, answer mentions, docs repositories and routes (🔒), docs sections per answer, AI docs search, and self-update (🔒).
+**Assistant:** community topic, personality (🔒), guardrail instructions (🔒, see [GUARDRAILS.md](GUARDRAILS.md)), chat context, cooldown, answers per minute, answer mentions, docs repositories and routes (🔒), docs sections per answer, AI docs search, and self-update (🔒).
 
 🔒 settings need **Administrator** (or being the server owner), not just Manage Server. That covers everything that could switch moderation off, hide case reports, exempt someone, or point the bot at another AI service.
 

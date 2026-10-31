@@ -227,6 +227,7 @@ async def ai_welcome(bot, member: discord.Member, rules_mention: str) -> str | N
     messages = build_messages(
         persona_prompt(bot.settings.system_prompt, context, bot.settings.community_about),
         prompt, [], rules=bot.rules.get(guild.id), context=context,
+        guardrails=list(bot.guardrails.current().instructions),
     )
     try:
         text = await asyncio.wait_for(bot.ai.complete(messages), WELCOME_AI_TIMEOUT)

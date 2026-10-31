@@ -27,6 +27,7 @@ from .assist import (
 )
 from .config import Settings, load_settings
 from .docs import DocsIndex, DocsRouter, GitHubDocsFetcher, load_docs, parse_repo_list
+from .guardrails import HELD_BACK_REPLY, GuardrailsFile
 from .health import GitHubReporter, HealthMonitor
 from .moderation import Classifier, LinkChecker, Moderator
 from .moderation.appeals import AppealManager
@@ -117,6 +118,13 @@ class AssistantBot(discord.Client):
         self.notice = ""  # shown to moderators once, after startup
         self._renew_task: asyncio.Task | None = None
 
+        # The owners' guardrails (GUARDRAILS_FILE), re-read whenever the file changes.
+        self.guardrails = GuardrailsFile(settings.guardrails_file, settings.guardrail_instructions)
+        # The bot's own keys: an answer that contains one is never sent.
+        self._secrets = tuple(k for k in (
+            settings.discord_token, settings.anthropic_api_key, settings.openai_compat_api_key,
+            settings.ai_backup_api_key, settings.github_token, settings.health_github_token,
+        ) if k)
         # Also screens the assistant's own answers, so a tricked AI can't post piracy or scam links.
         self.links = LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains, settings.mod_piracy_domains)
         self.moderator: Moderator | None = None
@@ -135,7 +143,8 @@ class AssistantBot(discord.Client):
                     log.warning("AI provider %s can't see images; image scams are judged by text only", self._mod_ai.name)
             self.moderator = Moderator(
                 self.links,
-                Classifier(self._mod_ai, community=settings.community_about) if self._mod_ai else None,
+                Classifier(self._mod_ai, community=settings.community_about,
+                           guidance=lambda: self.guardrails.current().moderation) if self._mod_ai else None,
                 ai_scan=settings.mod_ai_scan,
                 min_confidence=settings.mod_min_confidence,
             )
@@ -177,6 +186,7 @@ class AssistantBot(discord.Client):
         self.tree.add_command(settings_command)
         self.tree.add_command(help_command)
         self.tree.add_command(feedback_command)
+        self.tree.add_command(guardrails_command)
 
     async def setup_hook(self) -> None:
         if self.docs_specs:
@@ -437,19 +447,33 @@ class AssistantBot(discord.Client):
         the Discord message parts and the turn to remember for follow-ups. Raises if the
         AI fails."""
         context = context or AskContext(bot_name=self.user.name if self.user else "the assistant")
+        rails = self.guardrails.current()
+        decision = rails.check_question(question)
+        if decision.reason:
+            log.info("Guardrail for a question from %s: %s", context.asker or "someone", decision.reason)
+        if decision.reply is not None:
+            # A redirect or a refusal: the AI never sees the question.
+            return split_reply(decision.reply, []), Turn(question, decision.reply)
         excerpts, topic_repos = await find_excerpts(
             self.docs, self.docs_router, question, limit=self.settings.docs_excerpts,
             ai=self.ai, ai_query=self.settings.docs_ai_query, history=list(history),
         )
-        reply = screen_reply(await self.ai.complete(
-            build_messages(
-                persona_prompt(self.settings.system_prompt, context, self.settings.community_about),
-                question, excerpts, topic_repos,
-                rules=self.rules.get(guild_id) if guild_id else "", history=list(history),
-                context=context, images=images if self.ai.supports_images else (),
-                docs_loaded=len(self.docs) > 0,
-            )
-        ), self.links)
+        persona = persona_prompt(self.settings.system_prompt, context, self.settings.community_about)
+        guardrails = [*rails.instructions, *decision.instructions]
+        messages = build_messages(
+            persona, question, excerpts, topic_repos,
+            rules=self.rules.get(guild_id) if guild_id else "", history=list(history),
+            context=context, images=images if self.ai.supports_images else (),
+            docs_loaded=len(self.docs) > 0,
+            guardrails=guardrails,
+        )
+        reply = await self.ai.complete(messages)
+        # Only the private instructions count as a leak: quoting the docs or #rules is fine.
+        problem = rails.check_answer(reply, "\n".join([persona, *guardrails]), self._secrets)
+        if problem:
+            log.warning("Held back an AI answer: %s", problem)
+            reply = HELD_BACK_REPLY
+        reply = screen_reply(reply, self.links)
         return split_reply(reply, excerpts if wants_sources(question) else []), Turn(question, reply.strip())
 
     async def context_for(self, guild: discord.Guild | None, channel, user: discord.abc.User,
@@ -768,6 +792,37 @@ async def feedback_command(interaction: discord.Interaction) -> None:
         await interaction.response.send_message("You need the Moderate Members permission.", ephemeral=True)
         return
     await interaction.response.send_message(embed=community.downvoted_embed(bot.store, interaction.guild_id), ephemeral=True)
+
+
+@app_commands.command(name="guardrails", description="See the AI's guardrails, or test what they do with a question")
+@app_commands.describe(test="A question to try: shows whether it's answered, redirected or refused, and why")
+@app_commands.default_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.guild_only()
+async def guardrails_command(interaction: discord.Interaction, test: app_commands.Range[str, 1, 500] | None = None) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    rails = bot.guardrails.current()
+    path = bot.guardrails.path
+    found = path is not None and path.is_file()
+    lines = [
+        f"**Guardrails** from `{path}`" if found else
+        f"**Guardrails:** no file at `{path}` yet, so only the built-in ones apply. Copy `guardrails.example.txt` to start.",
+        f"Loaded: {rails.summary()}. Edits to the file apply on the next question, no restart needed.",
+        "Built in, always on: jailbreak attempts are refused, and answers that leak the bot's instructions, "
+        "a key, a piracy link or a scam link are held back.",
+    ]
+    if rails.problems:
+        lines.append("⚠️ Lines that couldn't be read: " + "; ".join(rails.problems[:5]))
+    if test:
+        decision = rails.check_question(test)
+        if decision.reply is not None:
+            lines.append(f"\n**Test:** answered without the AI ({decision.reason}):\n> {decision.reply[:500]}")
+        elif decision.instructions:
+            lines.append(f"\n**Test:** the AI answers, with extra instructions ({decision.reason}):\n"
+                         + "\n".join(f"> {i[:300]}" for i in decision.instructions))
+        else:
+            lines.append("\n**Test:** no guardrail matches; the AI answers normally, following the instructions.")
+    await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
 
 
 @app_commands.command(name="settings", description="Open the private settings page (keys, channels, AI, moderation)")

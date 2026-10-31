@@ -94,6 +94,8 @@ _FIELDS = [
     # Assistant
     _f("COMMUNITY_ABOUT", "Community topic", "Assistant", "text", "What the server is about, in a few words", max_length=400),
     _f("AI_SYSTEM_PROMPT", "Personality", "Assistant", "paragraph", "Replaces the built-in personality (empty = built-in)", admin=True, max_length=3000),
+    _f("GUARDRAIL_INSTRUCTIONS", "Guardrail instructions", "Assistant", "paragraph",
+       "Rules the AI always follows, one per line (added to the guardrails file)", admin=True, max_length=1500),
     _f("CHAT_CONTEXT_MESSAGES", "Chat context", "Assistant", "int", "Recent messages the AI reads: 0-20", low=0, high=20, live=True),
     _f("ASK_COOLDOWN_SECONDS", "Cooldown (seconds)", "Assistant", "float", "Wait between a member's questions; 0 = off", low=0, high=3600),
     _f("ASK_MAX_PER_MINUTE", "Answers per minute", "Assistant", "int", "Most AI answers per minute, for everyone together; 0 = no limit", low=0, high=600),

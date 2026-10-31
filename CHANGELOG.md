@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Guardrails
+- A guardrails file gives the AI the owners' own rules: `[instructions]` it always follows, `[redirect]` fixed answers for set questions (no AI call), `[topic]` extra guidance on tricky subjects, `[block questions]` and `[block answers]` keywords, and `[moderation]` guidance for the moderation AI. Keywords or regular expressions; re-read on every change, no restart. See [docs/GUARDRAILS.md](docs/GUARDRAILS.md) and `guardrails.example.txt`.
+- Always on: jailbreak attempts are refused without calling the AI, and answers that repeat the bot's instructions or contain a key or token are held back.
+- `/guardrails` shows what's loaded and tests a question. Administrators can add instructions in `/settings` → Assistant.
+- The Static Recomp profile ships guardrails: recompilation isn't emulation, no help finding game files, keys or firmware, no guessed release dates, and ask for logs on crashes.
+
 ### Security hardening
 - **One server only.** Settings, keys and AI quota are shared, so the bot only works in its own server (`DISCORD_GUILD_ID`, or the first server it joins) and leaves any other it's invited to. Slash commands, buttons, moderation and answers are ignored elsewhere and in DMs (except the Appeal button in warning DMs). SETUP.md now says to turn off **Public Bot**.
 - **Staff commands check permissions when used**, not only through Discord's default permissions, which a server can override under Integrations. `/warn` only works on members whose top role is below yours, and never on yourself. Moderators can't press buttons on their own case or appeal, and case buttons only act in the server the case belongs to.

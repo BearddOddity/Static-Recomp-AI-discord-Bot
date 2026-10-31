@@ -6,6 +6,7 @@ import discord
 import pytest
 
 from bot import community, config
+from bot.guardrails import GuardrailsFile
 from bot.moderation import appeals
 from bot.moderation.cases import CaseStore
 
@@ -358,7 +359,7 @@ def make_welcome_bot(reply="Welcome aboard! Read <#9>.", fail=False, help_enable
     guild = SimpleNamespace(id=1, name="Recomp", me=SimpleNamespace(display_name="Bot"))
     member = SimpleNamespace(mention="<@5>", guild=guild)
     bot = SimpleNamespace(
-        ai=AI(), last_ai_welcome=-1e9, rules=SimpleNamespace(get=lambda gid: "Be kind."),
+        ai=AI(), last_ai_welcome=-1e9, guardrails=GuardrailsFile(""), rules=SimpleNamespace(get=lambda gid: "Be kind."),
         settings=SimpleNamespace(system_prompt="", community_about="static recompilation", help_enabled=help_enabled),
     )
     return bot, member, calls

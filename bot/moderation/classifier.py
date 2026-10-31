@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..ai import AIProvider, Image, Message, untrusted
@@ -107,10 +108,23 @@ def system_prompt(community: str = "video games") -> str:
     return SYSTEM_PROMPT.replace("{community}", community)
 
 
+GUIDANCE_SECTION = """
+
+MODERATOR GUIDANCE from the server's owners. Follow it when it applies; the FREE SPEECH \
+policy above still wins.
+<<<
+{guidance}
+>>>"""
+
+
 class Classifier:
-    def __init__(self, provider: AIProvider, max_concurrent: int = 2, community: str = "video games"):
+    def __init__(
+        self, provider: AIProvider, max_concurrent: int = 2, community: str = "video games",
+        guidance: Callable[[], str] = lambda: "",
+    ):
         self.provider = provider
         self.system_prompt = system_prompt(community)
+        self.guidance = guidance  # [moderation] in the guardrails file, re-read when it changes
         # Bounds cost and rate limits when a raid posts many messages at once.
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -130,8 +144,12 @@ class Classifier:
         if signals:
             details.append("Automatic rule findings: " + "; ".join(s.reason for s in signals))
 
+        prompt = self.system_prompt + (RULES_SECTION.format(rules=rules) if rules.strip() else "")
+        guidance = self.guidance().strip()
+        if guidance:
+            prompt += GUIDANCE_SECTION.replace("{guidance}", guidance)
         messages = [
-            Message("system", self.system_prompt + (RULES_SECTION.format(rules=rules) if rules.strip() else "")),
+            Message("system", prompt),
             Message("user", "\n\n".join(details), images=usable_images),
         ]
         async with self._semaphore:

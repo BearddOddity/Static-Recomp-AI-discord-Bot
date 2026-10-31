@@ -245,6 +245,9 @@ async def save_and_show(bot, interaction: discord.Interaction, field: rs.Field, 
             channel = interaction.guild.get_channel(int(value))
             if channel is None:
                 raise ValueError("I can't see a channel with that ID in this server.")
+        if field.key == "DISCORD_GUILD_ID" and value and int(value) != interaction.guild.id:
+            # The bot leaves every other server, so a wrong ID would make it leave this one.
+            raise ValueError(f"Use this server's ID ({interaction.guild.id}): the bot leaves any other server.")
     except ValueError as error:
         embed, view = show(f"⚠️ {error}")
         await interaction.response.edit_message(embed=embed, view=view)

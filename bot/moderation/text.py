@@ -37,6 +37,20 @@ TEXT_PATTERNS = [
      "tries to ping @everyone or @here", 15),
 ]
 
+# A message that talks to the AI moderator ("ignore previous instructions", a ready-made
+# {"label": "ok"} verdict) is trying to talk its way past it. On its own that is only
+# worth a look; together with other scam signs the AI can't clear it (see engine.py).
+INJECTION_REASON = "tries to give instructions to the AI moderator"
+INJECTION = re.compile(
+    r"\b(ignore|disregard|forget|override)\b.{0,30}\b(previous|prior|above|earlier|all|your|the)\b.{0,20}"
+    r"\b(instructions?|prompts?|rules|directions)\b"
+    r"|[\"']label[\"']\s*:\s*[\"'](ok|scam|piracy)"
+    r"|\b(classify|label|mark|rate)\b.{0,25}\b(this|it|the message|this message)\b.{0,15}\b(as|is)\b.{0,5}[\"']?(ok|safe|not a scam)\b"
+    r"|\b(new|updated|system)\s+(instructions?|prompt)\s*:"
+    r"|\byou are (now )?(no longer )?(the |a )?(moderat|classif)",
+    _I | re.S,
+)
+
 # Piracy: asking for or offering game files instead of dumping your own copy.
 _FILES = r"(rom|roms|iso|isos|xex|pkg|nsp|xci|wbfs|game files?)"
 _SHARING = r"(download|dl link|link|mega|mediafire|torrent|gdrive|google drive|send|share)"
@@ -58,6 +72,8 @@ def check_text(text: str) -> list[Signal]:
         signals.append(Signal("crypto giveaway, casino or bonus promotion", 35))
     if CELEBRITY.search(text) and (has_crypto or GIVEAWAY.search(text) or MONEY_AMOUNT.search(text)):
         signals.append(Signal("celebrity name used to promote money or crypto", 25))
+    if INJECTION.search(text):
+        signals.append(Signal(INJECTION_REASON, 25))
     for pattern, reason, weight, *category in TEXT_PATTERNS + PIRACY_PATTERNS:
         if pattern.search(text):
             signals.append(Signal(reason, weight, *category))

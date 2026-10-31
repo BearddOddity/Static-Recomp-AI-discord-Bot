@@ -8,7 +8,7 @@ from .classifier import AIVerdict, Classifier
 from .files import check_attachments, check_urls
 from .links import LinkChecker, extract_urls
 from .signals import Signal, leading_category, total
-from .text import check_text
+from .text import INJECTION_REASON, check_text
 
 # Score at or above which rules alone decide "scam" (e.g. a blocklisted domain).
 HARD_SCORE = 80
@@ -119,6 +119,9 @@ class Moderator:
             return OK
         if ai.label != "ok" and ai.confidence >= self.min_confidence:
             return Verdict(ai.label, ai.confidence, ai.reasons + rule_reasons, source, score, tuple(urls))
+        if score >= SOFT_SCORE and INJECTION_REASON in rule_reasons:
+            # A scam that tells the AI to call it fine: the AI's "ok" can't be trusted, so the rules decide.
+            return Verdict(rule_label, score / 100, rule_reasons, "rules", score, tuple(urls))
         return OK
 
     def _should_ask_ai(self, post: Post, urls: list[str], score: int) -> bool:

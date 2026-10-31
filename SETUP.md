@@ -14,6 +14,7 @@ This takes about 20 minutes and no programming. You need:
 2. On **General Information**, copy the **Application ID**. You need it in step 2.
 3. Open the **Bot** page:
    - Click **Reset Token**, then **Copy**. This is your `DISCORD_TOKEN`. Keep it secret: anyone with it controls your bot. If it ever leaks, reset it again.
+   - Turn **off Public Bot**, so only you can invite it. The bot only works in your own server and leaves any other server it's added to, but turning this off stops strangers trying.
    - Under **Privileged Gateway Intents**, turn on **Message Content Intent** and click **Save Changes**. Without it the bot can't read messages and won't start. If you want a welcome message for new members, also turn on **Server Members Intent** here ([details](docs/COMMUNITY.md#welcome-message)).
 
 ## 2. Invite the bot to your server
@@ -66,7 +67,7 @@ Copy `.env.example` to a new file called `.env`. The start scripts in step 7 do 
 
 ```
 DISCORD_TOKEN=          # from step 1
-DISCORD_GUILD_ID=       # your server's ID (right-click server icon → Copy ID)
+DISCORD_GUILD_ID=       # your server's ID (right-click server icon → Copy ID). The bot only works here
 
 AI_PROVIDER=openrouter
 OPENAI_COMPAT_API_KEY=  # sk-or-... from step 4

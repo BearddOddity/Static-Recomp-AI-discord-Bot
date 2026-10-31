@@ -167,8 +167,11 @@ class AppealManager:
             await interaction.response.send_message("You need the **moderate members** permission.", ephemeral=True)
             return
         appeal, case = self.store.get_appeal(case_id), self.store.get(case_id)
-        if appeal is None or case is None:
+        if appeal is None or case is None or case.guild_id != interaction.guild_id:
             await interaction.response.send_message("That appeal no longer exists.", ephemeral=True)
+            return
+        if member.id == case.user_id:
+            await interaction.response.send_message("You can't decide your own appeal. Ask another moderator.", ephemeral=True)
             return
         if appeal.status != "open":
             await interaction.response.send_message(f"This appeal was already {appeal.status}.", ephemeral=True)

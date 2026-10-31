@@ -160,7 +160,7 @@ class FakeDiscord:
         interaction = MagicMock()
         interaction.data = {"custom_id": f"case:{case_id}:{action}"}
         interaction.user = self.make_member(77, **permissions)
-        interaction.guild = self.guild
+        interaction.guild, interaction.guild_id = self.guild, self.guild.id
         interaction.response.send_message = AsyncMock()
         interaction.response.defer = AsyncMock()
         interaction.followup.send = AsyncMock()
@@ -438,3 +438,19 @@ def test_certain_piracy_is_deleted_but_follows_the_ladder(settings, store):
 def test_ask_always_carries_the_anti_piracy_policy():
     messages = build_messages("Be helpful.", "where do I get halo 3 iso", [])
     assert any("anti-piracy" in m.content for m in messages if m.role == "system")
+
+
+
+def test_buttons_refuse_other_servers_and_your_own_case(settings, store):
+    fake = FakeDiscord(settings, store)
+    case = flag(fake)
+    fake.guild.id = 2  # the same button clicked from another server
+    other = fake.click(case.id, "dismiss", moderate_members=True)
+    assert "no longer exists" in other.response.send_message.await_args.args[0]
+    assert store.get(case.id).is_open
+
+    fake.guild.id = 1
+    own = store.create_case(1, 77, "scam", ["x"], channel_id=3, message_id=5)  # 77 is the clicking moderator
+    mine = fake.click(own.id, "dismiss", moderate_members=True)
+    assert "your own case" in mine.response.send_message.await_args.args[0]
+    assert store.get(own.id).is_open

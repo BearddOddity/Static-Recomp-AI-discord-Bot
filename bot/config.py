@@ -43,6 +43,7 @@ class Settings:
 
     ai_cli_command: str
     ask_cooldown_seconds: float
+    ask_max_per_minute: int
 
     openrouter_app_name: str
     openrouter_site_url: str
@@ -220,7 +221,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
         ai_cli_command=os.getenv("AI_CLI_COMMAND", ""),
-        ask_cooldown_seconds=float(os.getenv("ASK_COOLDOWN_SECONDS", "10")),
+        ask_cooldown_seconds=max(0.0, float(os.getenv("ASK_COOLDOWN_SECONDS", "10") or 10)),
+        ask_max_per_minute=max(0, int(os.getenv("ASK_MAX_PER_MINUTE", "20") or 20)),
         openrouter_app_name=_get("OPENROUTER_APP_NAME", "AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
         openrouter_free_fallback=_flag("OPENROUTER_FREE_FALLBACK", True),

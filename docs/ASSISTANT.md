@@ -14,6 +14,8 @@ The bot is a general AI assistant, not just a docs search. Its personality is in
 
 Long answers arrive in up to three messages instead of being cut off. `ASK_ON_MENTION=false` turns off mentions and replies (`/ask` and assistant channels still work).
 
+To keep the AI bill in check, each member waits `ASK_COOLDOWN_SECONDS` (default 10) between questions, however they ask, and the whole server gets at most `ASK_MAX_PER_MINUTE` answers a minute (default 20; a ⏳ reaction means "wait"). Questions are capped at 1,500 characters. If someone tricks the AI into an answer with a piracy site, a game-file link or a scam domain, the bot holds it back and says so instead.
+
 ## Answering from GitHub docs
 
 List the repos to learn from in `DOCS_REPOS`, comma separated, as `owner/repo[@branch][:folder]`. Add `.wiki` to a repo name to read its GitHub wiki instead:

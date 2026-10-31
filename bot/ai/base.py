@@ -22,6 +22,12 @@ class Message:
     images: tuple[Image, ...] = ()
 
 
+def untrusted(text: str) -> str:
+    """Text from members, to put between <<< and >>> in a prompt. Their own <<< and >>>
+    are changed, so a message can't close the block early and pose as instructions."""
+    return text.replace("<<<", "‹‹‹").replace(">>>", "›››")
+
+
 class AIProvider(ABC):
     """A chat-style text model. Every backend implements this one method."""
 

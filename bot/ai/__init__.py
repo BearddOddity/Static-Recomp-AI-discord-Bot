@@ -1,7 +1,7 @@
 import httpx
 
 from ..config import Settings
-from .base import AIError, AIProvider, Image, Message
+from .base import AIError, AIProvider, Image, Message, untrusted
 from .anthropic_provider import AnthropicProvider
 from .cli import CLIProvider
 from .fallback import FallbackProvider, FreeModelFinder, Problem
@@ -16,6 +16,7 @@ __all__ = [
     "Image",
     "Message",
     "build_provider",
+    "untrusted",
 ]
 
 

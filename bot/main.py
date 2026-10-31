@@ -76,6 +76,9 @@ REQUIRED_PERMISSIONS = discord.Permissions(
     manage_threads=True,  # close and archive /help threads
 )
 
+# Only /help threads use these, so they're only missing once Help mode is on.
+HELP_ONLY_PERMISSIONS = ("create_private_threads", "manage_threads")
+
 class HomeOnlyTree(app_commands.CommandTree):
     """Slash commands only work in the bot's own server. Settings, keys and AI quota are
     shared by every server the bot is in, so someone who invites it elsewhere must not be
@@ -1000,13 +1003,22 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
         add(ok(f"Locked to this server, the first one it joined. Tip: `DISCORD_GUILD_ID={guild.id}` in `.env` "
                "keeps it that way even if it's ever added somewhere else first"))
 
-    missing = [permission_name(name) for name, needed in REQUIRED_PERMISSIONS if needed
-               and not getattr(guild.me.guild_permissions, name)]
+    missing = [name for name, needed in REQUIRED_PERMISSIONS if needed and not getattr(guild.me.guild_permissions, name)]
+    link = invite_url(bot.application_id)
+    # Bots invited before /help threads existed lack the thread permissions. That only
+    # matters once Help mode is on.
+    help_missing = [name for name in missing if name in HELP_ONLY_PERMISSIONS]
+    if not settings.help_enabled:
+        missing = [name for name in missing if name not in HELP_ONLY_PERMISSIONS]
     if missing:
-        add(fix(f"Missing permissions: {', '.join(missing)}.",
-                f"Re-invite the bot with this link (it keeps all its settings): <{invite_url(bot.application_id)}>"))
+        add(fix(f"Missing permissions: {', '.join(permission_name(n) for n in missing)}. "
+                "The bot was probably invited with an older link.",
+                f"Re-invite it with this link (it keeps all its settings and just updates its role): <{link}>"))
     else:
         add(ok("All the permissions it needs"))
+    if help_missing and not settings.help_enabled:
+        add(off(f"Help mode needs {', '.join(permission_name(n) for n in help_missing)}: "
+                f"if you turn it on, re-invite with <{link}>"))
     if guild.me.top_role.position <= 1:
         add(fix("The bot's role is at the bottom of the role list, so it can only time out members with no roles.",
                 "Server Settings → Roles: drag the bot's role above normal members (but below staff)."))

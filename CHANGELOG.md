@@ -10,6 +10,7 @@
 - Answers can't hide where a link goes (`[text](url)` is written out), and answers with another server's invite are held back.
 - `.env` and the `data/` folder are made private to the bot's user, and new `.env` files are created that way. The command-line AI never sees the bot's Discord or GitHub tokens.
 - [docs/SECURITY.md](docs/SECURITY.md): every protection, plus a checklist for owners.
+- [docs/PERMISSIONS.md](docs/PERMISSIONS.md): one short page with the permissions to give the bot, the ones never to give it, the Developer Portal settings, and what staff need for each command.
 
 ### Guardrails
 - A guardrails file gives the AI the owners' own rules: `[instructions]` it always follows, `[redirect]` fixed answers for set questions (no AI call), `[topic]` extra guidance on tricky subjects, `[block questions]` and `[block answers]` keywords, and `[moderation]` guidance for the moderation AI. Keywords or regular expressions; re-read on every change, no restart. See [docs/GUARDRAILS.md](docs/GUARDRAILS.md) and `guardrails.example.txt`.

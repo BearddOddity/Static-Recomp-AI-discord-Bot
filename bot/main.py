@@ -39,6 +39,7 @@ from .moderation.review import PREFIX as CASE_PREFIX
 from .moderation.review import CaseManager
 from .moderation.rules import RulesBook
 from . import community, runtime_settings, settings_ui
+from .status import Check, fix, off, ok, render
 from .updater import RESTART_EXIT_CODE, Updater
 
 log = logging.getLogger("bot")
@@ -892,26 +893,32 @@ async def _ai_mode_choices(interaction: discord.Interaction, current: str) -> li
     return [app_commands.Choice(name=m, value=m) for m in ("default", *bot.settings.ai_modes) if current.lower() in m]
 
 
-def safety_problems(guild: discord.Guild) -> list[str]:
+def safety_checks(guild: discord.Guild) -> list[Check]:
     """What would let the bot do more harm than its job needs: permissions it shouldn't
-    have, or a role above the server's staff."""
+    have, or a role above the server's staff. Each comes with its fix."""
     me = guild.me
     if me is None:
         return []
     problems = []
     extra = [name for name in DANGEROUS_PERMISSIONS if getattr(me.guild_permissions, name, False)]
     if "administrator" in extra:
-        problems.append("The bot has **Administrator**, which lets anyone with its token do anything to the server. "
-                        "Remove it from the bot's role and re-invite with the link in SETUP.md.")
+        problems.append(fix("The bot has **Administrator**, which lets anyone with its token do anything to the server.",
+                            "Remove it from the bot's role and re-invite with the link in SETUP.md."))
     elif extra:
-        problems.append("The bot has permissions it never uses: " + ", ".join(p.replace("_", " ").title() for p in extra)
-                        + ". Remove them from its role (Server Settings → Roles), so a stolen token can do less.")
+        problems.append(fix("The bot has permissions it never uses: "
+                            + ", ".join(permission_name(p) for p in extra) + ".",
+                            "Remove them from its role (Server Settings → Roles), so a stolen token can do less."))
     staff_below = [role.name for role in guild.roles if role < me.top_role and not role.is_default() and not role.managed
                    and any(getattr(role.permissions, p) for p in STAFF_PERMISSIONS)]
     if staff_below:
-        problems.append("The bot's role is above staff roles (" + ", ".join(staff_below[:5]) + "), so it could time out "
-                        "or ban staff. Drag it below them in Server Settings → Roles, keeping it above normal members.")
+        problems.append(fix("The bot's role is above staff roles (" + ", ".join(staff_below[:5])
+                            + "), so it could time out or ban staff.",
+                            "Drag it below them in Server Settings → Roles, keeping it above normal members."))
     return problems
+
+
+def safety_problems(guild: discord.Guild) -> list[str]:
+    return [f"{check.text} {check.fix}" for check in safety_checks(guild)]
 
 
 def outranks(moderator: discord.abc.User, member: discord.Member) -> bool:
@@ -936,82 +943,132 @@ def invite_url(application_id: int | None) -> str:
 @app_commands.guild_only()
 async def status(interaction: discord.Interaction) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
-    settings, guild = bot.settings, interaction.guild
-    ok, bad = "✅", "⚠️"
-    lines = [f"**{bot.user.name} status** (v{__version__})"]
+    checks = await status_checks(bot, interaction.guild)
+    await interaction.response.send_message(embed=render(checks, bot.user.name, __version__), ephemeral=True)
 
-    def model_of(provider: AIProvider) -> str:
-        if isinstance(provider, FallbackProvider):
-            return f"`{provider.name}` · `{provider.current or 'picks a free model on first use'}`"
-        return f"`{provider.name}`"
 
-    lines.append(f"{bad if bot.brake.engaged else ok} Safety brake: {bot.brake.describe()}")
-    for problem in safety_problems(guild):
-        lines.append(f"{bad} {problem}")
-    lines.append(f"{ok} Locked to this server (DISCORD_GUILD_ID)" if settings.discord_guild_id
-                 else f"{bad} DISCORD_GUILD_ID is not set: set it so the bot can never be used from another server")
-    lines.append(f"{ok} AI for /ask: {model_of(bot.ai)}")
+# Where Discord's settings screens call a permission something else than discord.py does.
+PERMISSION_NAMES = {"manage_guild": "Manage Server", "view_channel": "View Channels",
+                    "moderate_members": "Timeout Members", "send_messages_in_threads": "Send Messages in Threads"}
+
+
+def permission_name(name: str) -> str:
+    return PERMISSION_NAMES.get(name, name.replace("_", " ").title())
+
+
+def _model_of(provider: AIProvider) -> str:
+    if isinstance(provider, FallbackProvider):
+        return f"`{provider.name}` · `{provider.current or 'picks a free model on first use'}`"
+    return f"`{provider.name}`"
+
+
+async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check]:
+    """Everything /status checks. Every problem says exactly how to fix it."""
+    settings = bot.settings
+    checks: list[Check] = []
+    add = checks.append
+
+    # --- safety ---
+    if bot.brake.engaged:
+        add(fix(f"Safety brake is {bot.brake.describe()}.",
+                "Once you've checked the recent case reports and the bot is behaving, run `/brake off`."))
+    else:
+        add(ok("Safety brake ready (`/brake on` stops everything automatic)"))
+    safety = safety_checks(guild)
+    checks.extend(safety)
+    if not safety:
+        add(ok("No dangerous permissions, and the bot's role is below your staff"))
+    if settings.discord_guild_id:
+        add(ok("Locked to this server"))
+    else:
+        add(fix("Not locked to this server, so it could be used from another one.",
+                f"Set `DISCORD_GUILD_ID={guild.id}` in `.env` and restart the bot."))
+
+    missing = [permission_name(name) for name, needed in REQUIRED_PERMISSIONS if needed
+               and not getattr(guild.me.guild_permissions, name)]
+    if missing:
+        add(fix(f"Missing permissions: {', '.join(missing)}.",
+                f"Re-invite the bot with this link (it keeps all its settings): <{invite_url(bot.application_id)}>"))
+    else:
+        add(ok("All the permissions it needs"))
+    if guild.me.top_role.position <= 1:
+        add(fix("The bot's role is at the bottom, so it can't time out anyone.",
+                "Server Settings → Roles: drag the bot's role above normal members (but below staff)."))
+
+    # --- AI ---
+    add(ok(f"AI for /ask: {_model_of(bot.ai)}"))
     for problem in bot.health.problems[-3:]:
-        lines.append(f"{bad} AI {problem.kind.replace('_', ' ')} problem with `{problem.model}`"
-                     + (f", now using `{problem.replacement}`" if problem.replacement else ""))
-    if settings.auto_update and bot.updater.available:
-        lines.append(f"{ok} Auto-update: checks GitHub every {settings.update_check_minutes:g} minutes")
-    else:
-        lines.append(f"{bad} Auto-update is off (run from a git clone with AUTO_UPDATE=true)")
+        if problem.kind == "model":
+            add(ok(f"AI model `{problem.model}` stopped working, so I switched to `{problem.replacement}` by myself"))
+        elif problem.kind == "key":
+            add(fix("The AI service refused the key.",
+                    "Put a new key in `/settings` → Keys (or in `.env`), then restart the bot."))
+        else:
+            add(fix(f"No AI model is working for `{problem.setting}`.",
+                    f"Set `{problem.setting}` to a model that's available today, in `/settings` → AI or `.env`."))
+
+    # --- moderation ---
     if not settings.mod_enabled:
-        lines.append(f"{bad} Moderation is off (MOD_ENABLED=false)")
+        add(off("Moderation is off (`MOD_ENABLED=false`)"))
     elif bot._mod_ai is None:
-        lines.append(f"{bad} Moderation AI is off (MOD_AI_SCAN=off): rules and AutoMod only")
+        add(off("Moderation AI is off (`MOD_AI_SCAN=off`): rules and AutoMod only"))
+    elif bot._mod_ai.supports_images:
+        add(ok(f"Moderation AI: {_model_of(bot._mod_ai)}, scan mode `{settings.mod_ai_scan}`, can see images"))
     else:
-        vision = bot._mod_ai.supports_images
-        lines.append(
-            f"{ok if vision else bad} Moderation AI: {model_of(bot._mod_ai)}, scan mode `{settings.mod_ai_scan}`, "
-            + ("can see images" if vision else "can't see images, so image-only scams get through")
-        )
+        add(fix(f"Moderation AI {_model_of(bot._mod_ai)} can't see images, so image-only scams get through.",
+                "Set `MOD_AI_MODEL` to a model that accepts images, in `/settings` → AI (see docs/AI-PROVIDERS.md)."))
 
     log_channel = guild.get_channel(settings.mod_log_channel_id) if settings.mod_log_channel_id else None
-    lines.append(
-        f"{ok} Case reports go to {log_channel.mention}" if log_channel
-        else f"{bad} MOD_LOG_CHANNEL_ID is missing or not visible: moderators get no case reports"
-    )
-    rules_channel = bot.rules.channel_for(guild)
-    rules_text = bot.rules.get(guild.id)
-    lines.append(
-        f"{ok} Rules: {len(rules_text)} characters read from {rules_channel.mention}" if rules_channel and rules_text
-        else f"{bad} No rules loaded (set RULES_CHANNEL_ID or name a channel #rules)"
-    )
-    lines.append(
-        f"{ok} Docs: {len(bot.docs)} sections from {len(bot.docs_specs)} sources" if len(bot.docs)
-        else f"{bad} No docs loaded yet (DOCS_REPOS, or wait a minute after startup)"
-    )
-    on, off = ok, "➖"
-    lines.append(f"{on if settings.appeals_enabled else off} Appeals mode: "
-                 + ("on, warned members can appeal" if settings.appeals_enabled else "off (turn on in /settings → Community)"))
-    lines.append(f"{on if settings.help_enabled else off} Help mode: "
-                 + ("on, members can use /help" if settings.help_enabled else "off (turn on in /settings → Community)"))
-    welcome = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
-    lines.append(f"{on if welcome else off} Welcome: "
-                 + (f"{welcome.mention}, written by {'the AI' if settings.welcome_ai else 'your message'}" if welcome
-                    else "off (pick a channel in /settings → Community)"))
-    lines.append(f"{ok} Warnings: timeout pending review at {settings.mod_warn_limit}; {bot.store.count_in_review(guild.id)} case(s) waiting for review")
-
+    if log_channel:
+        add(ok(f"Case reports go to {log_channel.mention}"))
+    else:
+        add(fix("No case reports channel, so moderators never see what the bot did.",
+                "Make a private #mod-log channel the bot can see, then pick it in `/settings` → Channels "
+                "(or set `MOD_LOG_CHANNEL_ID`)."))
+    rules_channel, rules_text = bot.rules.channel_for(guild), bot.rules.get(guild.id)
+    if rules_channel and rules_text:
+        add(ok(f"Rules: {len(rules_text)} characters read from {rules_channel.mention}"))
+    else:
+        add(fix("No rules loaded, so it can't enforce your rules channel.",
+                "Pick your rules channel in `/settings` → Channels (or name a channel #rules), "
+                "and let the bot see it and read its history."))
     try:
-        rules = await guild.fetch_automod_rules()
-        slurs = any(r.enabled and r.trigger.presets and r.trigger.presets.slurs for r in rules)
-        lines.append(
-            f"{ok} AutoMod slur filter is on: hate speech gets a timeout and a case" if slurs
-            else f"{bad} AutoMod slur filter is off: Server Settings → AutoMod → turn on \"Block words: Slurs\""
-        )
+        automod = await guild.fetch_automod_rules()
+        if any(r.enabled and r.trigger.presets and r.trigger.presets.slurs for r in automod):
+            add(ok("AutoMod slur filter is on: hate speech gets a timeout and a case"))
+        else:
+            add(fix("Discord's AutoMod slur filter is off.",
+                    "Server Settings → AutoMod → turn on **Block words: Slurs**."))
     except discord.HTTPException:
-        lines.append(f"{bad} Can't read AutoMod rules (the bot needs Manage Server)")
+        add(fix("Can't read your AutoMod rules.", "Give the bot's role **Manage Server**."))
+    add(ok(f"Warnings: timeout pending review at {settings.mod_warn_limit}; "
+           f"{bot.store.count_in_review(guild.id)} case(s) waiting for review"))
 
-    missing = [name.replace("_", " ").title() for name, needed in REQUIRED_PERMISSIONS if needed
-               and not getattr(guild.me.guild_permissions, name)]
-    lines.append(f"{bad} Missing permissions: {', '.join(missing)}" if missing else f"{ok} All permissions granted")
-    if guild.me.top_role.position <= 1:
-        lines.append(f"{bad} Move the bot's role higher in Server Settings → Roles, above members it should moderate")
-
-    await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
+    # --- assistant and community ---
+    if not bot.docs_specs:
+        add(off("No docs sources (`DOCS_REPOS`): /ask answers from general knowledge"))
+    elif len(bot.docs):
+        add(ok(f"Docs: {len(bot.docs)} sections from {len(bot.docs_specs)} sources"))
+    else:
+        add(fix("No docs loaded yet.", "Wait a minute after startup and run /status again. "
+                "If it's still empty, check `DOCS_REPOS` and run `/reload-docs`."))
+    if settings.auto_update and bot.updater.available:
+        add(ok(f"Auto-update: checks GitHub every {settings.update_check_minutes:g} minutes"))
+    elif not settings.auto_update:
+        add(off("Auto-update is off (`AUTO_UPDATE=false`): update with `git pull`"))
+    else:
+        add(fix("Auto-update can't run, because the bot isn't in a git clone.",
+                "Install it with `git clone` (not a downloaded zip), as SETUP.md shows."))
+    add((ok if settings.appeals_enabled else off)(
+        "Appeals: on, warned members can appeal" if settings.appeals_enabled
+        else "Appeals: off (turn on in `/settings` → Community)"))
+    add((ok if settings.help_enabled else off)(
+        "Help mode: on, members can use /help" if settings.help_enabled
+        else "Help mode: off (turn on in `/settings` → Community)"))
+    welcome = guild.get_channel(settings.welcome_channel_id) if settings.welcome_channel_id else None
+    add(ok(f"Welcome: {welcome.mention}, written by {'the AI' if settings.welcome_ai else 'your message'}") if welcome
+        else off("Welcome: off (pick a channel in `/settings` → Community)"))
+    return checks
 
 
 # Exit codes the start scripts understand: 0 = stopped on purpose, 2 = a setting needs

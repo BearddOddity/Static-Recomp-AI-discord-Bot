@@ -31,7 +31,7 @@ Pick your server and click **Authorize**. This grants exactly the permissions th
 | --- | --- |
 | View Channels, Read Message History, Send Messages (and in threads), Embed Links, Attach Files, Add Reactions | Read chat, answer `/ask`, post case reports with evidence |
 | Manage Messages | Delete scam, piracy and rule-breaking messages when it warns someone |
-| Moderate Members | Time members out while a moderator reviews their case |
+| Timeout Members (Moderate Members) | Time members out while a moderator reviews their case |
 | Ban Members | Ban, but **only** when a moderator presses Ban on a case |
 | Manage Server | See Discord's AutoMod slur filter, used for hate speech |
 | Create Private Threads, Manage Threads | `/help` threads: a private thread per member, closed when they're done |
@@ -109,7 +109,7 @@ When you see `Logged in as ...`, the bot is online.
 
 ## 8. Check everything
 
-In your server, type **`/status`**. It checks the AI, the case report channel, the rules, the docs, the AutoMod slur filter, the bot's permissions and its role position. Fix anything marked ⚠️.
+In your server, type **`/status`**. It checks the AI, the case report channel, the rules, the docs, the AutoMod slur filter, the bot's permissions and its role position. The title tells you at a glance: **✅ All good** means nothing needs doing. Otherwise each ❌ line is listed first, with the exact fix under it. ➖ lines are optional features you've left off. Fix the ❌ lines, then run `/status` again until it's all green.
 
 Then try it:
 - `/ask question: how do I get started?`, or mention the bot with a question. Reply to its answer to ask a follow-up.

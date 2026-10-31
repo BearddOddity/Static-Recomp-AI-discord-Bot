@@ -900,7 +900,13 @@ def safety_checks(guild: discord.Guild) -> list[Check]:
     if me is None:
         return []
     problems = []
-    extra = [name for name in DANGEROUS_PERMISSIONS if getattr(me.guild_permissions, name, False)]
+    # Only what the bot's own roles grant. Discord gives @everyone some of these by default
+    # (Create Invite, Mention @everyone), and those are the server's choice, not the bot's.
+    own = discord.Permissions.none()
+    for role in me.roles:
+        if not role.is_default():
+            own |= role.permissions
+    extra = [name for name in DANGEROUS_PERMISSIONS if getattr(own, name, False)]
     if "administrator" in extra:
         problems.append(fix("The bot has **Administrator**, which lets anyone with its token do anything to the server.",
                             "Remove it from the bot's role and re-invite with the link in SETUP.md."))
@@ -968,6 +974,14 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
     checks: list[Check] = []
     add = checks.append
 
+    # Settings saved in /settings only apply after a restart, so until then this report
+    # shows the old values.
+    if bot.settings_pending:
+        count = len(bot.settings_pending)
+        add(fix(f"{count} setting{'s' if count != 1 else ''} saved in `/settings` but not applied yet, "
+                "so this report still shows the old values.",
+                "Open `/settings` and press **Restart now** (the bot is back in about 20 seconds)."))
+
     # --- safety ---
     if bot.brake.engaged:
         add(fix(f"Safety brake is {bot.brake.describe()}.",
@@ -979,10 +993,12 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
     if not safety:
         add(ok("No dangerous permissions, and the bot's role is below your staff"))
     if settings.discord_guild_id:
-        add(ok("Locked to this server"))
+        add(ok("Locked to this server (`DISCORD_GUILD_ID`)"))
     else:
-        add(fix("Not locked to this server, so it could be used from another one.",
-                f"Set `DISCORD_GUILD_ID={guild.id}` in `.env` and restart the bot."))
+        # Without the setting the bot already treats its first server as home and leaves
+        # any other, so this is a tip, not a problem.
+        add(ok(f"Locked to this server, the first one it joined. Tip: `DISCORD_GUILD_ID={guild.id}` in `.env` "
+               "keeps it that way even if it's ever added somewhere else first"))
 
     missing = [permission_name(name) for name, needed in REQUIRED_PERMISSIONS if needed
                and not getattr(guild.me.guild_permissions, name)]
@@ -992,7 +1008,7 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
     else:
         add(ok("All the permissions it needs"))
     if guild.me.top_role.position <= 1:
-        add(fix("The bot's role is at the bottom, so it can't time out anyone.",
+        add(fix("The bot's role is at the bottom of the role list, so it can only time out members with no roles.",
                 "Server Settings → Roles: drag the bot's role above normal members (but below staff)."))
 
     # --- AI ---

@@ -45,7 +45,8 @@ def test_a_long_report_never_cuts_the_problems():
 class FakeGuild:
     def __init__(self, perms: dict, channels: dict, slurs: bool = True, automod_readable: bool = True):
         self.id = 1
-        self.me = SimpleNamespace(guild_permissions=discord.Permissions(**perms), top_role=SimpleNamespace(position=5))
+        role = SimpleNamespace(position=5, permissions=discord.Permissions(**perms), is_default=lambda: False)
+        self.me = SimpleNamespace(guild_permissions=role.permissions, top_role=role, roles=[role])
         self.roles, self.rules_channel, self.text_channels = [], None, []
         self._channels, self._slurs, self._readable = channels, slurs, automod_readable
 
@@ -106,12 +107,24 @@ def test_every_problem_says_how_to_fix_it(make_bot):
     assert all(c.fix for c in problems)
     fixes = {c.text: c.fix for c in problems}
     assert "/brake off" in by_text(problems, "Safety brake").fix
-    assert "DISCORD_GUILD_ID=1" in by_text(problems, "Not locked").fix
     assert "re-invite" in by_text(problems, "Administrator").fix
     assert "discord.com/oauth2" in by_text(problems, "Missing permissions").fix
     assert "Block words: Slurs" in by_text(problems, "AutoMod").fix
     assert "/settings" in by_text(problems, "case reports").fix
     assert len(fixes) >= 6
+
+
+def test_no_guild_id_is_a_tip_not_a_problem(make_bot):
+    checks = run(status_checks(make_bot(), FakeGuild({}, {})))
+    lock = by_text(checks, "Locked to this server")
+    assert lock.state == OK and "DISCORD_GUILD_ID=1" in lock.text
+
+
+def test_unapplied_settings_are_called_out(make_bot):
+    bot = make_bot(DISCORD_GUILD_ID="1")
+    bot.settings_pending.add("APPEALS_ENABLED")
+    checks = run(status_checks(bot, FakeGuild({}, {})))
+    assert checks[0].state == FIX and "Restart now" in checks[0].fix
 
 
 def test_unreadable_automod_and_blind_moderation_ai(make_bot):

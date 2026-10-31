@@ -422,13 +422,16 @@ class CaseManager:
         case_id, action = parsed
         base_action = action.removesuffix("_confirm")
         case = self.store.get(case_id)
-        if case is None or base_action not in ACTIONS:
+        if case is None or base_action not in ACTIONS or case.guild_id != interaction.guild_id:
             await interaction.response.send_message("That case no longer exists.", ephemeral=True)
             return
 
         permission = ACTIONS[base_action][3]
         if not isinstance(interaction.user, discord.Member) or not getattr(interaction.user.guild_permissions, permission):
             await interaction.response.send_message(f"You need the **{permission.replace('_', ' ')}** permission.", ephemeral=True)
+            return
+        if interaction.user.id == case.user_id:
+            await interaction.response.send_message("You can't decide your own case. Ask another moderator.", ephemeral=True)
             return
         if not case.is_open:
             await interaction.response.send_message(f"Case #{case.id} is already closed: {case.decision}.", ephemeral=True)

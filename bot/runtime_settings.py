@@ -56,10 +56,10 @@ def _f(*args, **kwargs) -> Field:
 
 _FIELDS = [
     # Channels
-    _f("MOD_LOG_CHANNEL_ID", "Mod log channel", "Channels", "channel", "Where case reports and alerts are posted"),
+    _f("MOD_LOG_CHANNEL_ID", "Mod log channel", "Channels", "channel", "Where case reports and alerts are posted", admin=True),
     _f("RULES_CHANNEL_ID", "Rules channel", "Channels", "channel", "The channel the bot reads the rules from (empty = find it)"),
     _f("ASSISTANT_CHANNEL_IDS", "Assistant channels", "Channels", "ids", "Channels where the bot answers every message (IDs, comma separated)"),
-    _f("DISCORD_GUILD_ID", "Server ID", "Channels", "id", "Makes slash commands appear at once (restart needed)"),
+    _f("DISCORD_GUILD_ID", "Server ID", "Channels", "id", "The only server the bot works in; makes slash commands appear at once", admin=True),
     # AI
     _f("AI_PROVIDER", "AI provider", "AI", "choice", "The main AI service", admin=True,
        choices=("openrouter", "groq", "gemini", "anthropic", "openai_compatible", "ollama")),
@@ -80,7 +80,7 @@ _FIELDS = [
     _f("HEALTH_GITHUB_TOKEN", "GitHub token (health PRs)", "Keys", "secret", "Lets the bot open pull requests and issues", admin=True),
     _f("HEALTH_GITHUB_REPO", "Health repository", "Keys", "text", "owner/repo the bot opens health PRs in", admin=True),
     # Moderation
-    _f("MOD_ENABLED", "Moderation", "Moderation", "bool", "Turn scam, piracy and rule checks on or off"),
+    _f("MOD_ENABLED", "Moderation", "Moderation", "bool", "Turn scam, piracy and rule checks on or off", admin=True),
     _f("MOD_AI_SCAN", "AI scan mode", "Moderation", "choice", "Which messages the AI reviews", choices=("off", "suspicious", "all")),
     _f("MOD_MIN_CONFIDENCE", "Confidence needed", "Moderation", "float", "0.50-0.99: higher = fewer false alarms", low=0.5, high=0.99, live=True),
     _f("MOD_ACTION", "Scam action", "Moderation", "choice", "delete the message or just flag it", choices=("delete", "flag")),
@@ -90,18 +90,19 @@ _FIELDS = [
     _f("MOD_WARN_LIMIT", "Warnings before timeout", "Moderation", "int", "1-20", low=1, high=20),
     _f("MOD_WARN_EXPIRY_DAYS", "Warning expiry (days)", "Moderation", "float", "0 = never expire", low=0, high=3650),
     _f("MOD_DM_WARNINGS", "DM members on warning", "Moderation", "bool", "Send the member a DM with the reason"),
-    _f("MOD_EXEMPT_ROLE_IDS", "Exempt roles", "Moderation", "ids", "Role IDs that are never moderated (comma separated)"),
+    _f("MOD_EXEMPT_ROLE_IDS", "Exempt roles", "Moderation", "ids", "Role IDs that are never moderated (comma separated)", admin=True),
     # Assistant
     _f("COMMUNITY_ABOUT", "Community topic", "Assistant", "text", "What the server is about, in a few words", max_length=400),
     _f("AI_SYSTEM_PROMPT", "Personality", "Assistant", "paragraph", "Replaces the built-in personality (empty = built-in)", admin=True, max_length=3000),
     _f("CHAT_CONTEXT_MESSAGES", "Chat context", "Assistant", "int", "Recent messages the AI reads: 0-20", low=0, high=20, live=True),
     _f("ASK_COOLDOWN_SECONDS", "Cooldown (seconds)", "Assistant", "float", "Wait between a member's questions; 0 = off", low=0, high=3600),
+    _f("ASK_MAX_PER_MINUTE", "Answers per minute", "Assistant", "int", "Most AI answers per minute, for everyone together; 0 = no limit", low=0, high=600),
     _f("ASK_ON_MENTION", "Answer mentions", "Assistant", "bool", "Answer when someone @mentions the bot"),
     _f("DOCS_REPOS", "Docs repositories", "Assistant", "text", "owner/repo, owner/repo.wiki ... (the source of truth)", admin=True, max_length=800),
     _f("DOCS_ROUTES", "Docs keyword routes", "Assistant", "text", "xbox=owner/repo; ps3=owner/repo", admin=True, max_length=800),
     _f("DOCS_EXCERPTS", "Docs sections per answer", "Assistant", "int", "1-10", low=1, high=10),
     _f("DOCS_AI_QUERY", "AI docs search", "Assistant", "choice", "fallback, always (best, costs more) or off", choices=("fallback", "always", "off")),
-    _f("AUTO_UPDATE", "Self-update", "Assistant", "bool", "Pull new code from GitHub and restart"),
+    _f("AUTO_UPDATE", "Self-update", "Assistant", "bool", "Pull new code from GitHub and restart", admin=True),
     # Community
     _f("WELCOME_CHANNEL_ID", "Welcome channel", "Community", "channel",
        "Empty = no welcome. Needs the Server Members Intent in the Developer Portal"),

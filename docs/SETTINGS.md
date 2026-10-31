@@ -27,17 +27,19 @@ Two settings apply at once with no restart: **Confidence needed** and **Chat con
 
 ## What can be changed
 
-**Channels:** mod log channel, rules channel, assistant channels, server ID.
+**Channels:** mod log channel (🔒), rules channel, assistant channels, server ID (🔒, must be this server's ID).
 
 **AI:** provider, models for `/ask`, models for moderation, free-model fallback (OpenRouter), backup provider and its models, custom API address, `/ai-mode` modes.
 
 **Keys** (🔒): the main AI key, Anthropic key, backup AI key, GitHub token for docs, GitHub token for health pull requests, and the health repository.
 
-**Moderation:** moderation on or off, AI scan mode, the delete-or-flag action for scams, piracy, rule-breaking and hate speech, warnings before a timeout, how long warnings last, DM on warning, exempt roles, and the confidence needed.
+**Moderation:** moderation on or off (🔒), AI scan mode, the delete-or-flag action for scams, piracy, rule-breaking and hate speech, warnings before a timeout, how long warnings last, DM on warning, exempt roles (🔒), and the confidence needed.
 
 **Community:** welcome channel and message, **AI welcome**, **Appeals mode**, **Help mode**, the help channel and the staff role pinged by "Get a human" ([details](COMMUNITY.md)). Appeals, Help and AI welcome are off until you turn them on, and each one explains itself before you change it.
 
-**Assistant:** community topic, personality (🔒), chat context, cooldown, answer mentions, docs repositories and routes (🔒), docs sections per answer, AI docs search, and self-update.
+**Assistant:** community topic, personality (🔒), chat context, cooldown, answers per minute, answer mentions, docs repositories and routes (🔒), docs sections per answer, AI docs search, and self-update (🔒).
+
+🔒 settings need **Administrator** (or being the server owner), not just Manage Server. That covers everything that could switch moderation off, hide case reports, exempt someone, or point the bot at another AI service.
 
 ### What can't be changed here, on purpose
 

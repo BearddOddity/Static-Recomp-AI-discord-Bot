@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from ..ai import AIProvider, Image, Message
+from ..ai import AIProvider, Image, Message, untrusted
 from .signals import Signal
 
 log = logging.getLogger("bot.moderation")
@@ -119,7 +119,7 @@ class Classifier:
     ) -> AIVerdict | None:
         """Return the model's verdict, or None if it failed or replied badly."""
         usable_images = tuple(images) if self.provider.supports_images else ()
-        details = [f"Message text:\n<<<\n{text.strip() or '(no text)'}\n>>>"]
+        details = [f"Message text:\n<<<\n{untrusted(text.strip()) or '(no text)'}\n>>>"]
         if urls:
             details.append("Links found: " + ", ".join(urls[:10]))
         if images:

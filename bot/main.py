@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 import discord
@@ -19,6 +20,7 @@ from .assist import (
     conversation_for,
     find_excerpts,
     persona_prompt,
+    screen_reply,
     split_reply,
     strip_mention,
     wants_sources,
@@ -40,6 +42,8 @@ from .updater import RESTART_EXIT_CODE, Updater
 log = logging.getLogger("bot")
 
 RENEW_TIMEOUTS_EVERY_SECONDS = 6 * 3600
+# Forget members' last question times once this many are tracked, so memory stays flat.
+MAX_TRACKED_ASKERS = 5000
 
 # Everything the bot needs. Used for the invite link and /status.
 REQUIRED_PERMISSIONS = discord.Permissions(
@@ -57,6 +61,19 @@ REQUIRED_PERMISSIONS = discord.Permissions(
     create_private_threads=True,  # /help threads
     manage_threads=True,  # close and archive /help threads
 )
+
+class HomeOnlyTree(app_commands.CommandTree):
+    """Slash commands only work in the bot's own server. Settings, keys and AI quota are
+    shared by every server the bot is in, so someone who invites it elsewhere must not be
+    able to change them or spend them."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.client.is_home(interaction.guild):  # type: ignore[attr-defined]
+            return True
+        if interaction.type == discord.InteractionType.application_command:
+            await interaction.response.send_message("This bot only works in the server it was set up for.", ephemeral=True)
+        return False
+
 
 class AssistantBot(discord.Client):
     def __init__(self, settings: Settings, members: bool | None = None):
@@ -100,6 +117,8 @@ class AssistantBot(discord.Client):
         self.notice = ""  # shown to moderators once, after startup
         self._renew_task: asyncio.Task | None = None
 
+        # Also screens the assistant's own answers, so a tricked AI can't post piracy or scam links.
+        self.links = LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains, settings.mod_piracy_domains)
         self.moderator: Moderator | None = None
         self._mod_ai: AIProvider | None = None
         if settings.mod_enabled:
@@ -115,7 +134,7 @@ class AssistantBot(discord.Client):
                 if not self._mod_ai.supports_images:
                     log.warning("AI provider %s can't see images; image scams are judged by text only", self._mod_ai.name)
             self.moderator = Moderator(
-                LinkChecker(settings.mod_blocked_domains, settings.mod_allowed_domains, settings.mod_piracy_domains),
+                self.links,
                 Classifier(self._mod_ai, community=settings.community_about) if self._mod_ai else None,
                 ai_scan=settings.mod_ai_scan,
                 min_confidence=settings.mod_min_confidence,
@@ -130,7 +149,8 @@ class AssistantBot(discord.Client):
             self.set_tuning(saved.get("confidence"), saved.get("context"), save=False)
 
         self.conversations = ConversationMemory()
-        self._mention_asked: dict[int, float] = {}
+        self._mention_asked: dict[int, float] = {}  # member -> when the AI last answered them
+        self._answers_this_minute: deque[float] = deque()  # every member, for ASK_MAX_PER_MINUTE
 
         # When a model disappears or the key stops working: tell the moderators, and
         # propose the fix on GitHub (a pull request for a model, an issue for a key).
@@ -145,7 +165,7 @@ class AssistantBot(discord.Client):
         self.updater = Updater(branch=settings.update_branch)
         self._update_task: asyncio.Task | None = None
 
-        self.tree = app_commands.CommandTree(self)
+        self.tree = HomeOnlyTree(self)
         self.tree.error(on_command_error)
         self.tree.add_command(ask)
         self.tree.add_command(reload_docs)
@@ -175,6 +195,50 @@ class AssistantBot(discord.Client):
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()
+
+    def is_home(self, guild: discord.abc.Snowflake | None) -> bool:
+        """Whether this is the server the bot was set up for. With DISCORD_GUILD_ID set, only
+        that one; without it, the only server the bot is in (never one of several, since
+        anyone could have invited it there)."""
+        if guild is None:
+            return False
+        if self.settings.discord_guild_id:
+            return guild.id == self.settings.discord_guild_id
+        return len(self.guilds) <= 1
+
+    def ai_wait(self, user_id: int) -> float:
+        """Seconds until the AI may answer this member again (0 = now, and the answer is
+        counted). Limits each member (ASK_COOLDOWN_SECONDS) and everyone together
+        (ASK_MAX_PER_MINUTE), so nobody can run up the AI bill."""
+        now = time.monotonic()
+        wait = self._mention_asked.get(user_id, -1e9) + self.settings.ask_cooldown_seconds - now
+        recent = self._answers_this_minute
+        while recent and now - recent[0] >= 60:
+            recent.popleft()
+        limit = self.settings.ask_max_per_minute
+        if limit > 0 and len(recent) >= limit:
+            wait = max(wait, recent[0] + 60 - now)
+        if wait > 0:
+            return wait
+        if len(self._mention_asked) > MAX_TRACKED_ASKERS:
+            cutoff = now - self.settings.ask_cooldown_seconds
+            self._mention_asked = {u: t for u, t in self._mention_asked.items() if t > cutoff}
+        self._mention_asked[user_id] = now
+        recent.append(now)
+        return 0.0
+
+    async def _leave_if_foreign(self, guild: discord.Guild, joined: bool = False) -> bool:
+        """Leave a server the bot wasn't set up for. True if the bot left."""
+        if self.settings.discord_guild_id:
+            if guild.id == self.settings.discord_guild_id:
+                return False
+        elif not joined or len(self.guilds) <= 1:
+            # Without DISCORD_GUILD_ID the first server is home; only a newcomer is left.
+            return False
+        log.warning("Leaving server %s (%s): the bot only runs in the server it was set up for", guild.name, guild.id)
+        with contextlib.suppress(discord.HTTPException):
+            await guild.leave()
+        return True
 
     @property
     def min_confidence(self) -> float:
@@ -269,8 +333,12 @@ class AssistantBot(discord.Client):
         log.info("Invite link: %s", invite_url(self.application_id))
         if not self.settings.mod_log_channel_id:
             log.warning("MOD_LOG_CHANNEL_ID is not set: cases are saved but moderators get no reports or buttons")
-        for guild in self.guilds:
-            await self.rules.refresh(guild)
+        for guild in list(self.guilds):
+            if not await self._leave_if_foreign(guild):
+                await self.rules.refresh(guild)
+        if not self.settings.discord_guild_id and len(self.guilds) > 1:
+            log.warning("The bot is in %d servers and DISCORD_GUILD_ID is not set, so it ignores all of them. "
+                        "Set DISCORD_GUILD_ID to your server's ID.", len(self.guilds))
         if self.notice:
             await self.notify_mods(self.notice)
             self.notice = ""
@@ -284,7 +352,7 @@ class AssistantBot(discord.Client):
     async def on_member_join(self, member: discord.Member) -> None:
         channel_id = self.settings.welcome_channel_id
         channel = member.guild.get_channel(channel_id) if channel_id else None
-        if member.bot or not isinstance(channel, discord.abc.Messageable):
+        if member.bot or not isinstance(channel, discord.abc.Messageable) or not self.is_home(member.guild):
             return
         rules = self.rules.channel_for(member.guild)
         rules_mention = rules.mention if rules else "the rules"
@@ -299,7 +367,8 @@ class AssistantBot(discord.Client):
             log.warning("Could not post the welcome message in channel %s", channel_id)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        await self.rules.refresh(guild)
+        if not await self._leave_if_foreign(guild, joined=True):
+            await self.rules.refresh(guild)
 
     # The rules are re-read whenever anything in the rules channel changes.
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
@@ -312,7 +381,7 @@ class AssistantBot(discord.Client):
         if before is not None and before.content == payload.data.get("content", before.content):
             return
         channel = self.get_channel(payload.channel_id)
-        if channel is None or self.rules.is_rules_channel(channel.guild, channel.id):
+        if channel is None or not self.is_home(channel.guild) or self.rules.is_rules_channel(channel.guild, channel.id):
             return
         try:
             message = await channel.fetch_message(payload.message_id)
@@ -321,7 +390,7 @@ class AssistantBot(discord.Client):
         await self._moderate(message)
 
     async def on_automod_action(self, execution: discord.AutoModAction) -> None:
-        if not self.moderator:
+        if not self.moderator or not self.is_home(execution.guild):
             return
         try:
             await self.cases.open_from_automod(execution)
@@ -337,6 +406,8 @@ class AssistantBot(discord.Client):
             await self.rules.refresh(guild)
 
     async def on_message(self, message: discord.Message) -> None:
+        if not self.is_home(message.guild):
+            return  # DMs, and servers the bot wasn't set up for
         if self.rules.is_rules_channel(message.guild, message.channel.id):
             await self.rules.refresh(message.guild)
             return
@@ -370,7 +441,7 @@ class AssistantBot(discord.Client):
             self.docs, self.docs_router, question, limit=self.settings.docs_excerpts,
             ai=self.ai, ai_query=self.settings.docs_ai_query, history=list(history),
         )
-        reply = await self.ai.complete(
+        reply = screen_reply(await self.ai.complete(
             build_messages(
                 persona_prompt(self.settings.system_prompt, context, self.settings.community_about),
                 question, excerpts, topic_repos,
@@ -378,7 +449,7 @@ class AssistantBot(discord.Client):
                 context=context, images=images if self.ai.supports_images else (),
                 docs_loaded=len(self.docs) > 0,
             )
-        )
+        ), self.links)
         return split_reply(reply, excerpts if wants_sources(question) else []), Turn(question, reply.strip())
 
     async def context_for(self, guild: discord.Guild | None, channel, user: discord.abc.User,
@@ -429,12 +500,10 @@ class AssistantBot(discord.Client):
         images = await read_images(message) if self.ai.supports_images else []
         if not question and not images:
             return
-        now = time.monotonic()
-        last = self._mention_asked.get(message.author.id, 0.0)
-        if now - last < self.settings.ask_cooldown_seconds:
-            await message.add_reaction("⏳")
+        if self.ai_wait(message.author.id):
+            with contextlib.suppress(discord.HTTPException):
+                await message.add_reaction("⏳")
             return
-        self._mention_asked[message.author.id] = now
         try:
             async with message.channel.typing():
                 context = await self.context_for(message.guild, message.channel, message.author, before=message)
@@ -459,6 +528,10 @@ class AssistantBot(discord.Client):
 
     async def answer_in_thread(self, thread: discord.Thread, member: discord.abc.User, question: str) -> None:
         """The first answer in a /help thread."""
+        if self.ai_wait(member.id):
+            await thread.send("I'm answering a lot of questions right now. Ask again here in a minute, "
+                              "or press **Get a human** and a moderator will help.")
+            return
         try:
             async with thread.typing():
                 context = await self.context_for(thread.guild, thread, member)
@@ -480,7 +553,10 @@ class AssistantBot(discord.Client):
         # are handled by the command tree.
         if interaction.type != discord.InteractionType.component:
             return
+        # Warning DMs carry the Appeal button, so appeals are the one button used outside the server.
         custom_id = (interaction.data or {}).get("custom_id", "")
+        if not self.is_home(interaction.guild) and not custom_id.startswith(APPEAL_PREFIX + ":"):
+            return
         handlers = [
             (lambda c: c.startswith(CASE_PREFIX + ":"), self.cases.handle_button),
             (lambda c: c.startswith(APPEAL_PREFIX + ":"), self.appeals.handle_button),
@@ -512,12 +588,6 @@ class AssistantBot(discord.Client):
         await super().close()
 
 
-def _ask_cooldown(interaction: discord.Interaction) -> app_commands.Cooldown | None:
-    # One /ask per user per ASK_COOLDOWN_SECONDS, so nobody can run up API costs.
-    seconds = interaction.client.settings.ask_cooldown_seconds  # type: ignore[attr-defined]
-    return app_commands.Cooldown(1, seconds) if seconds > 0 else None
-
-
 async def on_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
 ) -> None:
@@ -526,15 +596,30 @@ async def on_command_error(
             f"Slow down. Try again in {error.retry_after:.0f}s.", ephemeral=True
         )
         return
+    if isinstance(error, app_commands.MissingPermissions):
+        needed = ", ".join(p.replace("_", " ").title() for p in error.missing_permissions)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"You need the {needed} permission to use this.", ephemeral=True)
+        return
+    if isinstance(error, app_commands.CheckFailure):
+        return  # already answered (e.g. the bot isn't set up for this server)
     log.error("Command error", exc_info=error)
+
+
+# Long enough for a question with an error log; caps what one /ask can cost.
+MAX_QUESTION_CHARS = 1500
 
 
 @app_commands.command(name="ask", description="Ask the AI assistant anything")
 @app_commands.describe(question="What do you want to know?")
-@app_commands.checks.dynamic_cooldown(_ask_cooldown, key=lambda i: i.user.id)
-async def ask(interaction: discord.Interaction, question: str) -> None:
-    await interaction.response.defer(thinking=True)
+@app_commands.guild_only()
+async def ask(interaction: discord.Interaction, question: app_commands.Range[str, 1, MAX_QUESTION_CHARS]) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    wait = bot.ai_wait(interaction.user.id)
+    if wait:
+        await interaction.response.send_message(f"Slow down. Try again in {wait:.0f}s.", ephemeral=True)
+        return
+    await interaction.response.defer(thinking=True)
     try:
         context = await bot.context_for(interaction.guild, interaction.channel, interaction.user)
         parts, turn = await bot.answer(question, interaction.guild_id, context=context)
@@ -554,6 +639,7 @@ async def ask(interaction: discord.Interaction, question: str) -> None:
 
 @app_commands.command(name="reload-docs", description="Re-download the GitHub docs the bot answers from")
 @app_commands.default_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
 async def reload_docs(interaction: discord.Interaction) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
@@ -572,11 +658,15 @@ async def reload_docs(interaction: discord.Interaction) -> None:
 @app_commands.command(name="warn", description="Warn a member (counts toward a timeout pending review)")
 @app_commands.describe(member="Who to warn", reason="Why. The member sees this in a DM.")
 @app_commands.default_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(moderate_members=True)
 @app_commands.guild_only()
-async def warn(interaction: discord.Interaction, member: discord.Member, reason: str) -> None:
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
     if member.bot or member.guild_permissions.manage_messages:
         await interaction.response.send_message("Bots and moderators can't be warned.", ephemeral=True)
+        return
+    if not outranks(interaction.user, member):
+        await interaction.response.send_message("You can only warn members whose top role is below yours.", ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
     case = await bot.cases.open_manual(interaction.guild, member, interaction.user, reason)
@@ -591,6 +681,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 @app_commands.command(name="warnings", description="Show a member's warnings and recent cases")
 @app_commands.describe(member="Whose record to show")
 @app_commands.default_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(moderate_members=True)
 @app_commands.guild_only()
 async def warnings(interaction: discord.Interaction, member: discord.Member) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
@@ -610,6 +701,7 @@ async def warnings(interaction: discord.Interaction, member: discord.Member) -> 
 @app_commands.command(name="ai-mode", description="Switch which AI models answer /ask")
 @app_commands.describe(mode="A mode from AI_MODES, or default. Leave empty to see the current one.")
 @app_commands.default_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
 async def ai_mode(interaction: discord.Interaction, mode: str | None = None) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
@@ -630,6 +722,7 @@ async def ai_mode(interaction: discord.Interaction, mode: str | None = None) -> 
     context="How many recent channel messages the AI reads before answering, 0 to 20 (0 = none)",
 )
 @app_commands.default_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(moderate_members=True)
 @app_commands.guild_only()
 async def tune(
     interaction: discord.Interaction,
@@ -667,6 +760,7 @@ async def help_command(interaction: discord.Interaction, question: app_commands.
 
 @app_commands.command(name="feedback", description="See the answers members marked as unhelpful")
 @app_commands.default_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(moderate_members=True)
 @app_commands.guild_only()
 async def feedback_command(interaction: discord.Interaction) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
@@ -695,6 +789,16 @@ async def _ai_mode_choices(interaction: discord.Interaction, current: str) -> li
     return [app_commands.Choice(name=m, value=m) for m in ("default", *bot.settings.ai_modes) if current.lower() in m]
 
 
+def outranks(moderator: discord.abc.User, member: discord.Member) -> bool:
+    """Whether a moderator may act on a member: never on themselves, and only on members
+    whose top role is below theirs (the server owner may act on anyone)."""
+    if moderator.id == member.id:
+        return False
+    if not isinstance(moderator, discord.Member):
+        return False
+    return moderator.id == member.guild.owner_id or moderator.top_role > member.top_role
+
+
 def invite_url(application_id: int | None) -> str:
     return discord.utils.oauth_url(
         application_id or 0, permissions=REQUIRED_PERMISSIONS, scopes=("bot", "applications.commands")
@@ -703,6 +807,7 @@ def invite_url(application_id: int | None) -> str:
 
 @app_commands.command(name="status", description="Check the bot's setup and permissions in this server")
 @app_commands.default_permissions(manage_guild=True)
+@app_commands.checks.has_permissions(manage_guild=True)
 @app_commands.guild_only()
 async def status(interaction: discord.Interaction) -> None:
     bot: AssistantBot = interaction.client  # type: ignore[assignment]
@@ -715,6 +820,8 @@ async def status(interaction: discord.Interaction) -> None:
             return f"`{provider.name}` · `{provider.current or 'picks a free model on first use'}`"
         return f"`{provider.name}`"
 
+    lines.append(f"{ok} Locked to this server (DISCORD_GUILD_ID)" if settings.discord_guild_id
+                 else f"{bad} DISCORD_GUILD_ID is not set: set it so the bot can never be used from another server")
     lines.append(f"{ok} AI for /ask: {model_of(bot.ai)}")
     for problem in bot.health.problems[-3:]:
         lines.append(f"{bad} AI {problem.kind.replace('_', ' ')} problem with `{problem.model}`"

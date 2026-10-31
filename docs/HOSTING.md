@@ -80,11 +80,11 @@ No model works at all|Posts in `#mod-log` and opens an issue|Pick a model that's
 The pull requests and issues need these in `.env`:
 
 ```
-HEALTH_GITHUB_REPO=BearddOddity/Static-Recomp-AI-discord-Bot
+HEALTH_GITHUB_REPO=your-name/your-copy-of-the-bot
 HEALTH_GITHUB_TOKEN=github_pat_...
 ```
 
-Make the token at <https://github.com/settings/personal-access-tokens/new>: a **fine-grained** token, for **only this repository**, with **Contents**, **Pull requests** and **Issues** set to *Read and write*. The bot only opens pull requests and issues. It never merges anything, so every change is still reviewed by a person.
+Make the token at <https://github.com/settings/personal-access-tokens/new>: a **fine-grained** token, for **only this repository**, with **Contents**, **Pull requests** and **Issues** set to *Read and write*. Use a repo you own: the bot checks the token can push there, and otherwise only posts in `#mod-log`, so a copy of someone else's bot never files issues on their repo. The bot only opens pull requests and issues. It never merges anything, so every change is still reviewed by a person.
 
 Pull requests change the file in `HEALTH_PR_FILE`, which defaults to your `SERVER_PROFILE`. Keep model names there rather than in `.env`, because a setting in `.env` overrides the profile, and the merged change would have no effect. Without a server profile, the bot opens an issue that says which model to put in `.env`.
 

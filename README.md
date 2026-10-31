@@ -174,10 +174,22 @@ Setting|Default|What it does
 
 ## Use It as a Template
 
+### Your own copy, separate from everyone else's
+
+Every copy of the bot is its own bot. You can't invite someone else's copy to your server (it leaves any server it wasn't set up for), so you run your own, and nothing you do can reach theirs, or theirs yours:
+
+- **Your own Discord bot:** a new application and token from the Developer Portal ([SETUP.md](SETUP.md) step 1). Its name, avatar and slash commands are yours.
+- **Your own keys and server:** AI keys and `DISCORD_GUILD_ID` live in your `.env`, which is never committed.
+- **Your own data:** cases, warnings and `/settings` changes are saved in the `data/` folder next to your copy. Two copies on one machine need two folders.
+- **Your own updates:** a copy updates itself from the GitHub repo it was cloned from. Clone your own fork if you want to choose what your bot runs.
+- **Your own GitHub reports:** set `HEALTH_GITHUB_REPO` to your fork. The bot only opens pull requests and issues on a repo its token can push to, so a copy still pointing at someone else's repo just posts in its own mod log.
+
+### Build a bot for another community
+
 The code in `bot/` contains nothing specific to any one server. A community's topic, docs repos and keywords live in a **server profile**, so you can build your own bot from this one:
 
 1) Click **Use this template** or **Fork**, or download the ZIP.
-2) Delete `servers/static-recomp/`.
+2) Delete `servers/static-recomp/`. It's this community's profile, and it points health reports at this repo.
 3) Set `COMMUNITY_ABOUT`, `DOCS_REPOS` and `DOCS_ROUTES` in `.env`, or write your own `servers/<name>/server.env`.
 
 ## Development

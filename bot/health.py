@@ -47,6 +47,19 @@ class GitHubReporter:
         self.repo = repo
         self._client = client or httpx.AsyncClient(timeout=30)
         self._headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        self._writable: bool | None = None
+
+    async def can_write(self) -> bool:
+        """Whether the token can push to the repo. Anyone can open issues on a public repo,
+        so a copy of the bot run by someone else (with HEALTH_GITHUB_REPO still naming the
+        original) must not file its problems there. Only the repo's own maintainers report."""
+        if self._writable is None:
+            info = await self._json("GET", "")
+            self._writable = bool((info.get("permissions") or {}).get("push"))
+            if not self._writable:
+                log.warning("HEALTH_GITHUB_TOKEN can't push to %s, so AI problems are only posted in the mod log. "
+                            "Point HEALTH_GITHUB_REPO at your own copy of the bot.", self.repo)
+        return self._writable
 
     async def _call(self, method: str, path: str, **kwargs) -> httpx.Response:
         response = await self._client.request(method, f"{API}/repos/{self.repo}{path}", headers=self._headers, **kwargs)
@@ -167,7 +180,9 @@ class HealthMonitor:
         link = ""
         if self._reporter is not None:
             try:
-                if problem.kind == "model" and self._pr_file:
+                if not await self._reporter.can_write():
+                    pass  # someone else's repo: the mod log notice below is enough
+                elif problem.kind == "model" and self._pr_file:
                     link = await self._reporter.open_pr(
                         self._pr_file, problem.setting, problem.replacement, title, body
                     )

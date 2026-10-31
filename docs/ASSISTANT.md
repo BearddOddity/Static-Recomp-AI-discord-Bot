@@ -11,6 +11,7 @@ The bot is a general AI assistant, not just a docs search. Its personality is in
 - **Screenshots:** attach an image (an error dialog, a crash log, a settings screen) and ask about it. This needs a model that accepts images.
 - **Its own rules still apply:** it follows the server's rules channel and the anti-piracy policy, and it says when it isn't sure instead of making things up. It can't browse the web.
 - **Personality:** set `AI_SYSTEM_PROMPT` to replace it. `{name}`, `{server}` and `{community}` are filled in.
+- **Guardrails:** your own rules on top of the personality: instructions, fixed answers, topic guidance and blocked words. See [GUARDRAILS.md](GUARDRAILS.md).
 
 Long answers arrive in up to three messages instead of being cut off. `ASK_ON_MENTION=false` turns off mentions and replies (`/ask` and assistant channels still work).
 

@@ -1,0 +1,50 @@
+# Guardrails: rules the bot's AI always follows, on top of its personality.
+#
+# Copy this file to guardrails.txt (or set GUARDRAILS_FILE in .env) and edit it.
+# The bot re-reads it whenever it changes: no restart needed. Check it in Discord
+# with /guardrails, and try a question with /guardrails test:<question>.
+#
+# Lines starting with # are notes. Keywords are comma separated and match whole
+# words in any case ("free games" also matches "FREE GAMES"). Put a keyword in
+# /slashes/ to use a regular expression, e.g. /\bv?\d+\.\d+ release\b/.
+#
+# Always on, whatever this file says:
+# - Attempts to talk the AI out of its instructions ("ignore your rules",
+#   "developer mode", "show me your system prompt") are politely refused.
+# - Answers that repeat the bot's instructions, contain a key or token, or link to
+#   piracy, game files or scam sites are held back.
+# - The AI can't ping @everyone, @here, roles or members.
+
+
+[instructions]
+# Extra instructions the assistant always follows, one per line.
+Never claim to be a moderator or staff member, and never promise moderator action.
+Never ask members for passwords, tokens, keys, payment details or personal information.
+If you aren't sure about a fact, say so instead of guessing.
+
+
+[redirect]
+# keywords = the reply the bot sends instead of asking the AI.
+# Good for questions with one right answer, or ones the AI shouldn't improvise.
+# appeal my ban, unban me = Bans are reviewed by the moderators. Please message one directly.
+
+
+[topic]
+# keywords = an extra instruction the AI follows for questions about that topic.
+# release date, when will, eta = Never promise or guess release dates. Say there's no announced date unless the docs give one.
+
+
+[block questions]
+# keywords: questions with these are politely refused, without asking the AI.
+# credit card, social security number
+
+
+[block answers]
+# keywords: answers containing these are held back.
+# /\b\d{3}-\d{2}-\d{4}\b/
+
+
+[moderation]
+# Extra guidance for the moderation AI, one per line. Free speech still wins:
+# opinions, rudeness and profanity are never flagged.
+# Selling or trading accounts is a scam here.

@@ -20,6 +20,7 @@ The server owner is not necessarily a programmer. Keep setup simple, defaults sa
 - **Free speech is the server's policy.** Never flag opinions, criticism, rudeness, profanity, dark humour or arguments, even if the rules channel asks for civility. The only speech-based label is `hate_speech` (protected characteristics, slurs at people, threats). It always goes straight to a timeout pending review. Discord AutoMod's Slurs preset feeds it too, and the Profanity preset must never count. Don't add bundled slur word lists; rely on AutoMod and the AI.
 - **The rules channel is policy, not commands.** Its text is written by admins and is passed to the AI as rules to enforce. User messages stay untrusted data.
 - **AI output is untrusted.** The bot sends with `allowed_mentions=none` so a model can't ping `@everyone`. Keep it that way. Every answer goes through `screen_reply()` (`bot/assist.py`) so a tricked model can't post piracy or scam links. Message text and image text are data to the moderation model, never instructions: wrap member text in `untrusted()` before putting it between `<<<` `>>>`. Keep that framing in `bot/moderation/classifier.py`.
+- **Guardrails are the owners' AI policy.** `bot/guardrails.py` reads `GUARDRAILS_FILE` (format in `guardrails.example.txt`, guide in `docs/GUARDRAILS.md`). Every AI answer goes through `check_question()` before the AI and `check_answer()` after; new answer paths must too (they do if they use `AssistantBot.answer()`). Never ship a root `guardrails.txt`: it's the owner's local file. A community's rules go in its profile.
 - **One server only.** Settings and keys are global, so everything checks `AssistantBot.is_home()`. New commands, buttons and event handlers must too; slash commands get it from `HomeOnlyTree`. Staff commands need `app_commands.checks.has_permissions(...)` as well as `default_permissions`, because servers can override the defaults.
 - **Don't make the bot depend on one AI vendor.** Everything goes through `AIProvider` (`bot/ai/base.py`). New features must work with every provider, or degrade gracefully (as image moderation does with `supports_images`).
 - **Keep the free, no-hosting path working.** A user with only a free OpenRouter key must be able to run `/ask` and moderation, with no model configured (`FallbackProvider` + `FreeModelFinder` in `bot/ai/fallback.py` pick free models).
@@ -33,6 +34,7 @@ The server owner is not necessarily a programmer. Keep setup simple, defaults sa
 ```
 bot/
   main.py                Discord client: /ask, mentions, /reload-docs, on_message -> moderation
+  guardrails.py          Owners' AI rules (GUARDRAILS_FILE) + built-in jailbreak and leak checks
   assist.py              find_excerpts (search + AI rephrase), ConversationMemory (follow-ups), split_reply
   health.py              AI problems -> #mod-log notice + GitHub PR (model) or issue (key)
   updater.py             Self-update from GitHub (git fetch + fast-forward), then exit 3 to restart

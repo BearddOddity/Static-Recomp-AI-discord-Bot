@@ -103,7 +103,7 @@ class Moderator:
             return OK
 
         # Rules are part of the key: a verdict made under old rules may no longer hold.
-        key = self._content_key(post) + hashlib.sha256(post.rules.encode()).hexdigest()[:16]
+        key = self._content_key(post) + hashlib.sha256((post.rules + self.classifier.guidance()).encode()).hexdigest()[:16]
         source = "cache"
         ai = self._cache.get(key)
         if ai is None:

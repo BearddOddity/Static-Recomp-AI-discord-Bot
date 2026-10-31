@@ -44,6 +44,8 @@ class Settings:
     ai_cli_command: str
     ask_cooldown_seconds: float
     ask_max_per_minute: int
+    guardrails_file: str
+    guardrail_instructions: str
 
     openrouter_app_name: str
     openrouter_site_url: str
@@ -223,6 +225,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ai_cli_command=os.getenv("AI_CLI_COMMAND", ""),
         ask_cooldown_seconds=max(0.0, float(os.getenv("ASK_COOLDOWN_SECONDS", "10") or 10)),
         ask_max_per_minute=max(0, int(os.getenv("ASK_MAX_PER_MINUTE", "20") or 20)),
+        guardrails_file=_get("GUARDRAILS_FILE", "guardrails.txt"),
+        guardrail_instructions=os.getenv("GUARDRAIL_INSTRUCTIONS", "").strip(),
         openrouter_app_name=_get("OPENROUTER_APP_NAME", "AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),
         openrouter_free_fallback=_flag("OPENROUTER_FREE_FALLBACK", True),

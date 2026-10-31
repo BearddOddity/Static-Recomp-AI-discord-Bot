@@ -1,7 +1,11 @@
 import asyncio
+import os
 import shlex
 
 from .base import AIProvider, Message
+
+
+HIDDEN_FROM_CLI = frozenset({"DISCORD_TOKEN", "GITHUB_TOKEN", "HEALTH_GITHUB_TOKEN", "AI_BACKUP_API_KEY"})
 
 
 class CLIProvider(AIProvider):
@@ -19,6 +23,9 @@ class CLIProvider(AIProvider):
         if not self._argv:
             raise ValueError("AI_CLI_COMMAND is empty")
         self._timeout = timeout
+        # These tools can run commands, and a member could try to talk them into it, so
+        # they never see the bot's Discord or GitHub tokens. Their own AI key stays.
+        self._env = {k: v for k, v in os.environ.items() if k not in HIDDEN_FROM_CLI}
 
     async def complete(self, messages: list[Message]) -> str:
         prompt = "\n\n".join(f"[{m.role}]\n{m.content}" for m in messages)
@@ -27,6 +34,7 @@ class CLIProvider(AIProvider):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self._env,
         )
         try:
             stdout, stderr = await asyncio.wait_for(

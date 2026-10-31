@@ -45,6 +45,8 @@ class Settings:
     ask_cooldown_seconds: float
     ask_max_per_minute: int
     guardrails_file: str
+    mod_brake_limit: int
+    mod_ai_max_per_minute: int
     guardrail_instructions: str
 
     openrouter_app_name: str
@@ -226,6 +228,8 @@ def load_settings(require_discord: bool = True, require_ai: bool = True) -> Sett
         ask_cooldown_seconds=max(0.0, float(os.getenv("ASK_COOLDOWN_SECONDS", "10") or 10)),
         ask_max_per_minute=max(0, int(os.getenv("ASK_MAX_PER_MINUTE", "20") or 20)),
         guardrails_file=_get("GUARDRAILS_FILE", "guardrails.txt"),
+        mod_brake_limit=max(0, int(os.getenv("MOD_BRAKE_LIMIT", "8") or 8)),
+        mod_ai_max_per_minute=max(0, int(os.getenv("MOD_AI_MAX_PER_MINUTE", "30") or 30)),
         guardrail_instructions=os.getenv("GUARDRAIL_INSTRUCTIONS", "").strip(),
         openrouter_app_name=_get("OPENROUTER_APP_NAME", "AI Discord Bot"),
         openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", ""),

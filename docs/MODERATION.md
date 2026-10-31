@@ -28,7 +28,7 @@ Detection works in two layers:
 
 ### Warnings, timeouts and bans
 
-The bot warns first and never bans by itself:
+The bot warns first and never bans by itself. The **safety brake** pauses automatic actions if the AI suddenly flags many members, and `/brake on` stops them by hand ([details](SECURITY.md)):
 
 1. **Warning.** Each violation (a scam, piracy, a broken rule) **deletes the message**, opens a **case report** for moderators with a copy of the message and its images, and gives the member a warning by DM (warning 1 of 3, and so on).
 2. **Timeout until reviewed.** The **3rd warning** (`MOD_WARN_LIMIT`) times the member out and hands the case to a human. **Hate speech** goes straight here on the first offence. Discord caps timeouts at 28 days, so the bot renews them; nobody is released until a moderator decides. Optionally, `MOD_SEVERE_SCAM_REVIEW=true` sends near-certain scams (usually hacked accounts) here on the first offence too.

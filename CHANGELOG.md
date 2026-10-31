@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Safety
+- **Safety brake:** if the AI flags more than `MOD_BRAKE_LIMIT` (8) different members in 10 minutes, its verdicts only open case reports for an hour. Certain hits (known scam domains, game files, AutoMod) still act. Moderators are told, and `/brake off` resumes.
+- **`/brake on`**, an emergency stop: no automatic deletes, warnings, DMs, timeouts or AI answers until `/brake off`. Saved across restarts.
+- **Least privilege:** at startup and in `/status`, the bot warns if it has Administrator or permissions it never uses, or if its role is above staff roles. SETUP.md now places the bot's role below staff.
+- The moderation AI has a budget (`MOD_AI_MAX_PER_MINUTE`, 30). Past it, the rules judge alone.
+- Answers can't hide where a link goes (`[text](url)` is written out), and answers with another server's invite are held back.
+- `.env` and the `data/` folder are made private to the bot's user, and new `.env` files are created that way. The command-line AI never sees the bot's Discord or GitHub tokens.
+- [docs/SECURITY.md](docs/SECURITY.md): every protection, plus a checklist for owners.
+
 ### Guardrails
 - A guardrails file gives the AI the owners' own rules: `[instructions]` it always follows, `[redirect]` fixed answers for set questions (no AI call), `[topic]` extra guidance on tricky subjects, `[block questions]` and `[block answers]` keywords, and `[moderation]` guidance for the moderation AI. Keywords or regular expressions; re-read on every change, no restart. See [docs/GUARDRAILS.md](docs/GUARDRAILS.md) and `guardrails.example.txt`.
 - Always on: jailbreak attempts are refused without calling the AI, and answers that repeat the bot's instructions or contain a key or token are held back.

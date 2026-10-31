@@ -33,7 +33,7 @@ Two settings apply at once with no restart: **Confidence needed** and **Chat con
 
 **Keys** (🔒): the main AI key, Anthropic key, backup AI key, GitHub token for docs, GitHub token for health pull requests, and the health repository.
 
-**Moderation:** moderation on or off (🔒), AI scan mode, the delete-or-flag action for scams, piracy, rule-breaking and hate speech, warnings before a timeout, how long warnings last, DM on warning, exempt roles (🔒), and the confidence needed.
+**Moderation:** moderation on or off (🔒), AI scan mode, the delete-or-flag action for scams, piracy, rule-breaking and hate speech, warnings before a timeout, how long warnings last, DM on warning, exempt roles (🔒), the safety brake limit (🔒), the moderation AI's checks per minute (🔒), and the confidence needed.
 
 **Community:** welcome channel and message, **AI welcome**, **Appeals mode**, **Help mode**, the help channel and the staff role pinged by "Get a human" ([details](COMMUNITY.md)). Appeals, Help and AI welcome are off until you turn them on, and each one explains itself before you change it.
 

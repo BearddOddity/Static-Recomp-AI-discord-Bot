@@ -154,6 +154,7 @@ Command|Who|What it does
 `/status`|Admins|Check the bot's setup, permissions and AI
 `/reload-docs`|Admins|Download the GitHub docs again
 `/guardrails`|Admins|See the AI's guardrails, or test what they do with a question
+`/brake`|Moderators|Emergency stop: no automatic punishments or AI answers until turned off
 
 ## Configuration
 
@@ -192,6 +193,10 @@ The code in `bot/` contains nothing specific to any one server. A community's to
 1) Click **Use this template** or **Fork**, or download the ZIP.
 2) Delete `servers/static-recomp/`. It's this community's profile, and it points health reports at this repo.
 3) Set `COMMUNITY_ABOUT`, `DOCS_REPOS` and `DOCS_ROUTES` in `.env`, or write your own `servers/<name>/server.env`.
+
+## Security
+
+The bot is built so it can't be turned against your server: it bans only when a moderator presses the button, an automatic **safety brake** stops it if the AI suddenly flags many members, `/brake on` is an emergency stop, its answers are screened for unsafe links and leaked secrets, it only works in your own server, and it warns you if it has more permissions than it needs. [docs/SECURITY.md](docs/SECURITY.md) explains each protection and has a short checklist for owners.
 
 ## Development
 

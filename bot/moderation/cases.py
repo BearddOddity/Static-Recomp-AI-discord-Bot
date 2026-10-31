@@ -5,6 +5,7 @@ directly from the event loop.
 """
 
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -165,11 +166,25 @@ class Warning:
     created_at: float
 
 
+def protect(path: Path, mode: int) -> None:
+    """Make a file or folder private to the bot's user. A no-op on Windows and where the
+    bot doesn't own it (such as some Docker volumes)."""
+    try:
+        if os.name != "nt" and path.exists() and (path.stat().st_mode & 0o777) != mode:
+            os.chmod(path, mode)
+    except OSError:
+        pass
+
+
 class CaseStore:
     def __init__(self, path: str):
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path)
+        if path != ":memory:":
+            # Cases hold members' messages; settings.json next to it holds keys. Owner only.
+            protect(Path(path).parent, 0o700)
+            protect(Path(path), 0o600)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
         self._db.commit()

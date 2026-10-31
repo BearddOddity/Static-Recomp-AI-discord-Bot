@@ -65,11 +65,15 @@ class Moderator:
         classifier: Classifier | None,
         ai_scan: str = "suspicious",
         min_confidence: float = 0.75,
+        ai_per_minute: int = 0,
     ):
         self.links = links
         self.classifier = classifier if ai_scan != "off" else None
         self.ai_scan = ai_scan
         self.min_confidence = min_confidence
+        # A flood of messages can't run up the AI bill: past this, the rules decide alone.
+        self.ai_per_minute = ai_per_minute  # 0 = no limit
+        self._ai_calls: deque[float] = deque()
         self._recent: dict[int, deque] = defaultdict(deque)
         # AI verdicts by content hash, so cross-posted copies cost one AI call.
         self._cache: OrderedDict[str, AIVerdict] = OrderedDict()
@@ -106,7 +110,7 @@ class Moderator:
         key = self._content_key(post) + hashlib.sha256((post.rules + self.classifier.guidance()).encode()).hexdigest()[:16]
         source = "cache"
         ai = self._cache.get(key)
-        if ai is None:
+        if ai is None and self._ai_budget_left():
             source = "ai"
             ai = await self.classifier.classify(post.text, post.images, urls, signals, post.rules)
             if ai is not None:
@@ -123,6 +127,17 @@ class Moderator:
             # A scam that tells the AI to call it fine: the AI's "ok" can't be trusted, so the rules decide.
             return Verdict(rule_label, score / 100, rule_reasons, "rules", score, tuple(urls))
         return OK
+
+    def _ai_budget_left(self) -> bool:
+        if self.ai_per_minute <= 0:
+            return True
+        now = time.monotonic()
+        while self._ai_calls and now - self._ai_calls[0] >= 60:
+            self._ai_calls.popleft()
+        if len(self._ai_calls) >= self.ai_per_minute:
+            return False
+        self._ai_calls.append(now)
+        return True
 
     def _should_ask_ai(self, post: Post, urls: list[str], score: int) -> bool:
         if self.ai_scan == "all":

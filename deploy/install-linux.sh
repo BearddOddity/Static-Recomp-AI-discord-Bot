@@ -9,7 +9,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="${SERVICE_NAME:-ai-discord-bot}"
 
 if [ ! -f "$DIR/.env" ]; then
-  cp "$DIR/.env.example" "$DIR/.env"
+  cp "$DIR/.env.example" "$DIR/.env" && chmod 600 "$DIR/.env"
   echo "Created $DIR/.env. Fill it in (see SETUP.md), then run this script again."
   exit 1
 fi

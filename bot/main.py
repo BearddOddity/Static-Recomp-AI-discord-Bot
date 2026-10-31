@@ -31,7 +31,8 @@ from .guardrails import HELD_BACK_REPLY, GuardrailsFile
 from .health import GitHubReporter, HealthMonitor
 from .moderation import Classifier, LinkChecker, Moderator
 from .moderation.appeals import AppealManager
-from .moderation.cases import CaseStore
+from .moderation.brake import SafetyBrake
+from .moderation.cases import CaseStore, protect
 from .moderation.discord_glue import is_exempt, read_images, to_post
 from .moderation.review import APPEAL_PREFIX
 from .moderation.review import PREFIX as CASE_PREFIX
@@ -43,6 +44,17 @@ from .updater import RESTART_EXIT_CODE, Updater
 log = logging.getLogger("bot")
 
 RENEW_TIMEOUTS_EVERY_SECONDS = 6 * 3600
+PAUSED_REPLY = "I'm paused by the moderators for the moment. Please ask again later, or ask a moderator."
+
+# Permissions the bot never needs and that would let a stolen token or a bug do real
+# damage (delete channels, hand out roles, impersonate people with webhooks...).
+DANGEROUS_PERMISSIONS = (
+    "administrator", "manage_roles", "manage_channels", "manage_webhooks", "mention_everyone",
+    "kick_members", "manage_nicknames", "manage_expressions", "manage_events", "move_members",
+    "mute_members", "deafen_members", "view_audit_log", "create_instant_invite",
+)
+# Roles the bot must stay below, so it can never time out or ban the people who run the server.
+STAFF_PERMISSIONS = ("administrator", "manage_guild", "ban_members", "manage_roles")
 # Forget members' last question times once this many are tracked, so memory stays flat.
 MAX_TRACKED_ASKERS = 5000
 
@@ -92,6 +104,9 @@ class AssistantBot(discord.Client):
         self.settings = settings
         self.exit_code = 0
         self.ai: AIProvider = build_provider(settings)
+        if settings.ai_provider == "cli":
+            log.warning("AI_PROVIDER=cli: command-line AI tools can run commands, and members can try to talk them "
+                        "into it. Run the tool read-only or in a sandbox (see docs/SECURITY.md).")
 
         # /ai-mode: the chosen mode is saved next to the database so a restart keeps it.
         self._mode_file = Path(settings.mod_db_path).parent / "ai_mode.txt"
@@ -111,7 +126,10 @@ class AssistantBot(discord.Client):
         # Cases, warnings and the #rules copy live in SQLite and survive restarts.
         self.store = CaseStore(settings.mod_db_path)
         self.rules = RulesBook(self.store, settings.rules_channel_id)
-        self.cases = CaseManager(self, self.store, settings)
+        # The safety brake: /brake on stops everything automatic; it also comes on by itself
+        # when the AI suddenly flags many members (see moderation/brake.py).
+        self.brake = SafetyBrake(Path(settings.mod_db_path).parent / "brake.json", settings.mod_brake_limit)
+        self.cases = CaseManager(self, self.store, settings, self.brake)
         self.appeals = AppealManager(self, self.store, self.cases)
         self.last_ai_welcome = -1e9  # when the AI last wrote a welcome
         self._ticket_last: dict[int, int] = {}  # help thread -> the bot's latest answer there
@@ -147,6 +165,7 @@ class AssistantBot(discord.Client):
                            guidance=lambda: self.guardrails.current().moderation) if self._mod_ai else None,
                 ai_scan=settings.mod_ai_scan,
                 min_confidence=settings.mod_min_confidence,
+                ai_per_minute=settings.mod_ai_max_per_minute,
             )
 
         # /tune: moderators change these two live; the values are saved so a restart keeps them.
@@ -187,6 +206,7 @@ class AssistantBot(discord.Client):
         self.tree.add_command(help_command)
         self.tree.add_command(feedback_command)
         self.tree.add_command(guardrails_command)
+        self.tree.add_command(brake_command)
 
     async def setup_hook(self) -> None:
         if self.docs_specs:
@@ -346,6 +366,7 @@ class AssistantBot(discord.Client):
         for guild in list(self.guilds):
             if not await self._leave_if_foreign(guild):
                 await self.rules.refresh(guild)
+                await self._check_permissions(guild)
         if not self.settings.discord_guild_id and len(self.guilds) > 1:
             log.warning("The bot is in %d servers and DISCORD_GUILD_ID is not set, so it ignores all of them. "
                         "Set DISCORD_GUILD_ID to your server's ID.", len(self.guilds))
@@ -379,6 +400,13 @@ class AssistantBot(discord.Client):
     async def on_guild_join(self, guild: discord.Guild) -> None:
         if not await self._leave_if_foreign(guild, joined=True):
             await self.rules.refresh(guild)
+            await self._check_permissions(guild)
+
+    async def _check_permissions(self, guild: discord.Guild) -> None:
+        problems = safety_problems(guild)
+        if problems:
+            log.warning("Permission problems in %s: %s", guild.name, "; ".join(problems))
+            await self.notify_mods("🔐 **Safety check:** " + " ".join(problems))
 
     # The rules are re-read whenever anything in the rules channel changes.
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
@@ -447,6 +475,8 @@ class AssistantBot(discord.Client):
         the Discord message parts and the turn to remember for follow-ups. Raises if the
         AI fails."""
         context = context or AskContext(bot_name=self.user.name if self.user else "the assistant")
+        if self.brake.manual:
+            return [PAUSED_REPLY], Turn(question, PAUSED_REPLY)
         rails = self.guardrails.current()
         decision = rails.check_question(question)
         if decision.reason:
@@ -794,6 +824,24 @@ async def feedback_command(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=community.downvoted_embed(bot.store, interaction.guild_id), ephemeral=True)
 
 
+@app_commands.command(name="brake", description="Emergency brake: stop every automatic punishment and AI answer")
+@app_commands.describe(state="on stops everything automatic until you turn it off; off resumes; empty shows the state")
+@app_commands.choices(state=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")])
+@app_commands.default_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(moderate_members=True)
+@app_commands.guild_only()
+async def brake_command(interaction: discord.Interaction, state: str | None = None) -> None:
+    bot: AssistantBot = interaction.client  # type: ignore[assignment]
+    if state == "on":
+        bot.brake.engage(str(interaction.user))
+        await bot.notify_mods(f"🛑 {interaction.user.mention} pulled the **safety brake**: no automatic deletes, warnings, "
+                              "DMs or timeouts, and no AI answers. Violations still get case reports. `/brake off` to resume.")
+    elif state == "off":
+        bot.brake.release()
+        await bot.notify_mods(f"✅ {interaction.user.mention} released the safety brake. Automatic moderation and answers are back on.")
+    await interaction.response.send_message(f"Safety brake: **{bot.brake.describe()}**.", ephemeral=True)
+
+
 @app_commands.command(name="guardrails", description="See the AI's guardrails, or test what they do with a question")
 @app_commands.describe(test="A question to try: shows whether it's answered, redirected or refused, and why")
 @app_commands.default_permissions(manage_guild=True)
@@ -844,6 +892,28 @@ async def _ai_mode_choices(interaction: discord.Interaction, current: str) -> li
     return [app_commands.Choice(name=m, value=m) for m in ("default", *bot.settings.ai_modes) if current.lower() in m]
 
 
+def safety_problems(guild: discord.Guild) -> list[str]:
+    """What would let the bot do more harm than its job needs: permissions it shouldn't
+    have, or a role above the server's staff."""
+    me = guild.me
+    if me is None:
+        return []
+    problems = []
+    extra = [name for name in DANGEROUS_PERMISSIONS if getattr(me.guild_permissions, name, False)]
+    if "administrator" in extra:
+        problems.append("The bot has **Administrator**, which lets anyone with its token do anything to the server. "
+                        "Remove it from the bot's role and re-invite with the link in SETUP.md.")
+    elif extra:
+        problems.append("The bot has permissions it never uses: " + ", ".join(p.replace("_", " ").title() for p in extra)
+                        + ". Remove them from its role (Server Settings → Roles), so a stolen token can do less.")
+    staff_below = [role.name for role in guild.roles if role < me.top_role and not role.is_default() and not role.managed
+                   and any(getattr(role.permissions, p) for p in STAFF_PERMISSIONS)]
+    if staff_below:
+        problems.append("The bot's role is above staff roles (" + ", ".join(staff_below[:5]) + "), so it could time out "
+                        "or ban staff. Drag it below them in Server Settings → Roles, keeping it above normal members.")
+    return problems
+
+
 def outranks(moderator: discord.abc.User, member: discord.Member) -> bool:
     """Whether a moderator may act on a member: never on themselves, and only on members
     whose top role is below theirs (the server owner may act on anyone)."""
@@ -875,6 +945,9 @@ async def status(interaction: discord.Interaction) -> None:
             return f"`{provider.name}` · `{provider.current or 'picks a free model on first use'}`"
         return f"`{provider.name}`"
 
+    lines.append(f"{bad if bot.brake.engaged else ok} Safety brake: {bot.brake.describe()}")
+    for problem in safety_problems(guild):
+        lines.append(f"{bad} {problem}")
     lines.append(f"{ok} Locked to this server (DISCORD_GUILD_ID)" if settings.discord_guild_id
                  else f"{bad} DISCORD_GUILD_ID is not set: set it so the bot can never be used from another server")
     lines.append(f"{ok} AI for /ask: {model_of(bot.ai)}")
@@ -948,6 +1021,7 @@ CONFIG_EXIT_CODE = 2
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    protect(Path(".env"), 0o600)  # the bot's token and keys: readable by its own user only
     for attempt in (1, 2):
         try:
             settings = load_settings()

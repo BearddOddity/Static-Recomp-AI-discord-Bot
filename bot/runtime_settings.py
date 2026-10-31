@@ -89,6 +89,10 @@ _FIELDS = [
     _f("MOD_HATE_ACTION", "Hate speech action", "Moderation", "choice", "A timeout always happens; this is about the message", choices=("delete", "flag")),
     _f("MOD_WARN_LIMIT", "Warnings before timeout", "Moderation", "int", "1-20", low=1, high=20),
     _f("MOD_WARN_EXPIRY_DAYS", "Warning expiry (days)", "Moderation", "float", "0 = never expire", low=0, high=3650),
+    _f("MOD_BRAKE_LIMIT", "Safety brake", "Moderation", "int",
+       "Members the AI may flag in 10 min before it pauses itself; 0 = off", admin=True, low=0, high=100),
+    _f("MOD_AI_MAX_PER_MINUTE", "Moderation AI per minute", "Moderation", "int",
+       "Most AI checks a minute; past it the rules judge alone; 0 = no limit", admin=True, low=0, high=600),
     _f("MOD_DM_WARNINGS", "DM members on warning", "Moderation", "bool", "Send the member a DM with the reason"),
     _f("MOD_EXEMPT_ROLE_IDS", "Exempt roles", "Moderation", "ids", "Role IDs that are never moderated (comma separated)", admin=True),
     # Assistant

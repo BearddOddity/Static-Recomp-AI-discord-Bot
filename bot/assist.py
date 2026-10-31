@@ -86,18 +86,29 @@ ANTI_PIRACY = (
 # game-file link) is never posted by the assistant, however it was asked.
 UNSAFE_LINK_WEIGHT = 60
 BLOCKED_REPLY = (
-    "I started to answer with a link this server doesn't allow (piracy, game files or a known "
-    "scam site), so I've held it back. Try asking another way, or ask a moderator."
+    "I started to answer with a link this server doesn't allow (piracy, game files, a scam site "
+    "or another server's invite), so I've held it back. Try asking another way, or ask a moderator."
 )
 
 
+# [text](url) shows only the text in Discord, so "[github.com](https://evil.example)" hides
+# where a link goes. The bot's answers always show the real address.
+MASKED_LINK = re.compile(r"\[([^\]\n]{1,200})\]\(\s*<?(https?://[^\s)>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+# Server invites in the bot's own answers would advertise other servers in its name.
+INVITE = re.compile(r"(?:https?://)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com/invite)/\S+", re.I)
+
+
 def screen_reply(reply: str, links: LinkChecker) -> str:
-    """The AI's answer, or a refusal if it has a piracy or scam link in it. Members can try
-    to trick the AI, and the bot's own messages aren't moderated, so this is checked here."""
+    """The AI's answer, or a refusal if it has a piracy, scam or invite link in it. Members
+    can try to trick the AI, and the bot's own messages aren't moderated, so this is
+    checked here. Disguised links are written out so members see where they go."""
+    reply = MASKED_LINK.sub(lambda m: f"{m.group(1)} (<{m.group(2)}>)", reply)
     urls = extract_urls(reply)
-    unsafe = [s for s in links.check(urls) + check_urls(urls, links.is_allowed_url) if s.weight >= UNSAFE_LINK_WEIGHT]
+    unsafe = [s.reason for s in links.check(urls) + check_urls(urls, links.is_allowed_url) if s.weight >= UNSAFE_LINK_WEIGHT]
+    if INVITE.search(reply):
+        unsafe.append("a Discord server invite")
     if unsafe:
-        log.warning("Held back an AI answer: %s", "; ".join(s.reason for s in unsafe))
+        log.warning("Held back an AI answer: %s", "; ".join(unsafe))
         return BLOCKED_REPLY
     return reply
 

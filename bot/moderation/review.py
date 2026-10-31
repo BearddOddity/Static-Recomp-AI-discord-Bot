@@ -12,8 +12,9 @@ from datetime import datetime, timezone
 import discord
 
 from ..config import Settings
+from .brake import SafetyBrake
 from .cases import Case, CaseStore
-from .engine import Post, Verdict
+from .engine import HARD_SCORE, Post, Verdict
 from .policy import LABEL_NAMES, RENEW_WHEN_LEFT, REVIEW_TIMEOUT, is_severe, plan
 
 log = logging.getLogger("bot.moderation")
@@ -23,6 +24,7 @@ PREFIX = "case"
 # A new violation joins the member's case if it's still waiting for review, or was
 # opened in the last few minutes, so a burst of cross-posts makes one report.
 MERGE_WINDOW_SECONDS = 600
+BRAKE_NOTE = "safety brake on: no automatic action, a moderator decides"
 # Which label a merged case shows when it holds several kinds of violation.
 LABEL_RANK = {"manual": 0, "rule_violation": 1, "piracy": 2, "scam": 3, "hate_speech": 4}
 AUTOMOD_DEDUPE_SECONDS = 30
@@ -199,10 +201,11 @@ def build_dm_embed(case: Case, number: int, server: str, settings: Settings) -> 
 
 
 class CaseManager:
-    def __init__(self, client: discord.Client, store: CaseStore, settings: Settings):
+    def __init__(self, client: discord.Client, store: CaseStore, settings: Settings, brake: SafetyBrake | None = None):
         self.client = client
         self.store = store
         self.settings = settings
+        self.brake = brake or SafetyBrake(limit=settings.mod_brake_limit)
         self._automod_seen: dict[tuple, float] = {}
         self._automod_rules: dict[int, tuple[float, bool]] = {}
 
@@ -211,18 +214,34 @@ class CaseManager:
 
     # --- opening cases -----------------------------------------------------
 
+    async def _held(self, member_id: int, certain: bool) -> bool:
+        """Whether the safety brake stops automatic action on this violation. certain:
+        the rules or Discord AutoMod decided, not the AI."""
+        if self.brake.holds(certain):
+            return True
+        if certain or not self.brake.record(member_id):
+            return False
+        notify = getattr(self.client, "notify_mods", None)
+        if notify:
+            await notify(f"🛑 **Safety brake on:** {self.brake.reason}. That's more likely a broken model or a trick "
+                         "than a real wave, so for the next hour the AI's verdicts only open case reports: no deletes, "
+                         "warnings or timeouts. Known scam links, game files and AutoMod still act. "
+                         "Check the latest cases, then `/brake off` to resume early.")
+        return True
+
     async def open_from_message(self, message: discord.Message, post: Post, verdict: Verdict) -> Case:
         severe = is_severe(verdict, self.settings)
+        held = await self._held(message.author.id, certain=verdict.source == "rules" and verdict.score >= HARD_SCORE)
         existing = self.store.recent_open_case(message.guild.id, message.author.id, MERGE_WINDOW_SECONDS)
         if existing:
-            await self._add_violation(existing, message.author, verdict.label, list(verdict.reasons), severe, message)
+            await self._add_violation(existing, message.author, verdict.label, list(verdict.reasons), severe, message, held=held)
             return existing
         case = self.store.create_case(
             message.guild.id, message.author.id, verdict.label, list(verdict.reasons),
             channel_id=message.channel.id, message_id=message.id, confidence=verdict.confidence,
             content=message.content, urls=list(verdict.urls),
         )
-        await self._apply(case, message.author, severe, message, post.images)
+        await self._apply(case, message.author, severe, message, post.images, held=held)
         return case
 
     async def open_from_automod(self, execution: discord.AutoModAction) -> Case | None:
@@ -250,9 +269,10 @@ class CaseManager:
 
         matched = execution.matched_keyword or execution.matched_content or "a filtered word"
         reasons = ["hate speech caught by Discord's AutoMod slur filter", f"matched: ||{matched}||"]
+        held = await self._held(member.id, certain=True)  # Discord's own filter decided
         existing = self.store.recent_open_case(guild.id, member.id, MERGE_WINDOW_SECONDS)
         if existing:
-            await self._add_violation(existing, member, "hate_speech", reasons, True, None, execution.channel_id)
+            await self._add_violation(existing, member, "hate_speech", reasons, True, None, execution.channel_id, held=held)
             return existing
 
         case = self.store.create_case(
@@ -262,7 +282,7 @@ class CaseManager:
         if execution.message_id is None:
             case.message_deleted = True
             case.actions.append("AutoMod blocked the message")
-        await self._apply(case, member, True, None, [])
+        await self._apply(case, member, True, None, [], held=held)
         return case
 
     async def _is_hate_rule(self, execution: discord.AutoModAction) -> bool:
@@ -284,18 +304,23 @@ class CaseManager:
 
     async def _add_violation(
         self, case: Case, member: discord.abc.User, label: str, reasons: list[str], severe: bool,
-        message: discord.Message | None, channel_id: int | None = None,
+        message: discord.Message | None, channel_id: int | None = None, held: bool = False,
     ) -> None:
         """Fold another violation into an open case instead of opening a new report."""
         steps = plan(label, severe, self.warning_count(case.guild_id, case.user_id), self.settings)
         name = LABEL_NAMES.get(label, label)
-        self.store.add_warning(case.guild_id, case.user_id, reasons[0] if reasons else name, case.id)
         channel_id = message.channel.id if message is not None else channel_id
         where = f" in <#{channel_id}>" if channel_id else ""
-        case.actions.append(f"another {name.lower()} message{where}: warning {steps.warning_number}")
         case.reasons += [r for r in reasons if r not in case.reasons]
         if LABEL_RANK.get(label, 0) > LABEL_RANK.get(case.label, 0):
             case.label = label
+        if held:
+            case.actions.append(f"another {name.lower()} message{where}; {BRAKE_NOTE}")
+            self.store.save(case)
+            await self._refresh_report(case)
+            return
+        self.store.add_warning(case.guild_id, case.user_id, reasons[0] if reasons else name, case.id)
+        case.actions.append(f"another {name.lower()} message{where}: warning {steps.warning_number}")
 
         if steps.delete_message and message is not None:
             try:
@@ -316,7 +341,15 @@ class CaseManager:
         await self._apply(case, member, False, None, [])
         return case
 
-    async def _apply(self, case: Case, member: discord.abc.User, severe: bool, message: discord.Message | None, images) -> None:
+    async def _apply(
+        self, case: Case, member: discord.abc.User, severe: bool, message: discord.Message | None, images, held: bool = False,
+    ) -> None:
+        if held:
+            # The safety brake is on: report only. The buttons still let a moderator act.
+            case.actions.append(BRAKE_NOTE)
+            self.store.save(case)
+            await self._post_report(case, images)
+            return
         steps = plan(case.label, severe, self.warning_count(case.guild_id, case.user_id), self.settings)
         reason = case.reasons[0] if case.reasons else LABEL_NAMES.get(case.label, case.label)
         self.store.add_warning(case.guild_id, case.user_id, reason, case.id)

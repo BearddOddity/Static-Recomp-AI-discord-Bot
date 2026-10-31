@@ -44,7 +44,8 @@ The bot also prints this link (with your ID filled in) every time it starts.
 2. **Make a private `#mod-log` channel** that only moderators and the bot can see. Case reports and their buttons go there. Copy its ID.
 3. **Check your rules channel.** The bot reads it and follows it. Copy its ID, or leave it out and the bot finds it by itself.
 4. **Turn on the slur filter:** Server Settings → **Safety Setup** → **AutoMod** → the commonly flagged words rule. Enable **Slurs**. For free speech, leave Profanity off. The bot treats a slur-filter hit as hate speech: the member is timed out and a case is opened for review.
-5. **Move the bot's role up:** Server Settings → **Roles**, then drag the bot's role above your normal member roles. Discord won't let a bot time out anyone whose role is above its own.
+5. **Place the bot's role:** Server Settings → **Roles**, then drag the bot's role **above your normal member roles and below your staff roles**. Discord won't let a bot act on anyone above it, so this way it can moderate members but can never touch your moderators, even if something goes wrong. Never give it Administrator.
+6. **Read [docs/SECURITY.md](docs/SECURITY.md)** once. It's a short checklist (two-factor login, a protected `main` branch, an AI spending limit) that keeps the bot from ever being turned against your server.
 
 ## 4. Get a free AI key
 

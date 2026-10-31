@@ -5,7 +5,7 @@
 cd "$(dirname "$0")" || exit 1
 
 if [ ! -f .env ]; then
-  cp .env.example .env
+  cp .env.example .env && chmod 600 .env
   echo "Created .env. Open it, fill in DISCORD_TOKEN and your AI key (see SETUP.md), then run ./start.sh again."
   exit 1
 fi

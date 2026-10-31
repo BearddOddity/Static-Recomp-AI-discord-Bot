@@ -216,7 +216,7 @@ async def ai_welcome(bot, member: discord.Member, rules_mention: str) -> str | N
     """An AI-written welcome, or None when it's too soon after the last one or the AI fails,
     in which case the moderator's own message is used."""
     now = time.monotonic()
-    if now - bot.last_ai_welcome < WELCOME_AI_GAP_SECONDS:
+    if now - bot.last_ai_welcome < WELCOME_AI_GAP_SECONDS or getattr(getattr(bot, "brake", None), "manual", False):
         return None
     bot.last_ai_welcome = now
     guild = member.guild

@@ -196,7 +196,7 @@ The code in `bot/` contains nothing specific to any one server. A community's to
 
 ## Security
 
-The bot is built so it can't be turned against your server: it bans only when a moderator presses the button, an automatic **safety brake** stops it if the AI suddenly flags many members, `/brake on` is an emergency stop, its answers are screened for unsafe links and leaked secrets, it only works in your own server, and it warns you if it has more permissions than it needs. [docs/SECURITY.md](docs/SECURITY.md) explains each protection and has a short checklist for owners.
+The bot is built so it can't be turned against your server: it bans only when a moderator presses the button, an automatic **safety brake** stops it if the AI suddenly flags many members, `/brake on` is an emergency stop, its answers are screened for unsafe links and leaked secrets, it only works in your own server, and it warns you if it has more permissions than it needs. [docs/SECURITY.md](docs/SECURITY.md) explains each protection and has a short checklist for owners. [docs/PERMISSIONS.md](docs/PERMISSIONS.md) is the simple list of what to give the bot, what never to give it, and what your staff need.
 
 ## Development
 

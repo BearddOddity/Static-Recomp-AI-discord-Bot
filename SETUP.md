@@ -38,6 +38,8 @@ Pick your server and click **Authorize**. This grants exactly the permissions th
 
 The bot also prints this link (with your ID filled in) every time it starts.
 
+Never give it more, especially **Administrator**. The full list, what never to give it, and what your staff need is on one page: [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
+
 ## 3. Prepare your server
 
 1. **Turn on Developer Mode** to copy IDs: User Settings → Advanced → **Developer Mode**. You can then right-click any channel or server and choose **Copy ID**.

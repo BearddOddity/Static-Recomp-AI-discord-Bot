@@ -39,7 +39,7 @@ Work through this list once. `/status` checks the starred items for you.
 1. **Keep the token secret.** Never paste it in Discord or share your `.env`. If it ever leaks, go to the Developer Portal → Bot → **Reset Token** at once, then put the new one in `.env`.
 2. **Turn off Public Bot** (Developer Portal → Bot), so only you can invite it.
 3. ⭐ **Set `DISCORD_GUILD_ID`** to your server's ID.
-4. ⭐ **Invite with the link in SETUP.md and nothing more.** Never give the bot Administrator, Manage Roles, Manage Channels or Manage Webhooks.
+4. ⭐ **Invite with the link in SETUP.md and nothing more.** Never give the bot Administrator, Manage Roles, Manage Channels or Manage Webhooks. The full list is in [PERMISSIONS.md](PERMISSIONS.md).
 5. ⭐ **Put the bot's role below your staff roles and above normal members.** Discord never lets a bot act on anyone above it, so a mistake or a stolen token can't touch your moderators.
 6. **Turn on two-factor authentication** for your Discord and GitHub accounts, and for anyone else who can manage the Developer Portal application or push to the bot's repo.
 7. **Protect the code the bot runs.** The bot updates itself from GitHub every 30 minutes, so whoever can push to its branch controls it. On GitHub: Settings → Branches → add a rule for `main` that requires a pull request. Only give write access to people you trust. If you'd rather approve every update by hand, set `AUTO_UPDATE=false` and update with `git pull`.

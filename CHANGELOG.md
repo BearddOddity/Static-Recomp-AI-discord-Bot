@@ -8,6 +8,7 @@
 - **Admin-only settings:** the mod log channel, moderation on/off, exempt roles, self-update and the server ID now need Administrator in `/settings`. The server ID must be the server you're in.
 - **Prompt injection:** members' text can't close the `<<<` `>>>` blocks the AI is told to treat as data. A message that talks to the moderation AI ("ignore previous instructions", a ready-made `{"label": "ok"}`) is noticed; together with other scam signs, the AI's "ok" no longer clears it.
 - **Answers are screened:** if the AI is tricked into an answer with a piracy site, a direct game-file link, a known scam domain or a lookalike domain, the bot posts a refusal instead.
+- **Every copy is its own bot.** AI health pull requests and issues are only opened on a repo the token can push to, so someone running a copy with this community's profile never files on this repo. The README explains what each copy keeps to itself (bot, keys, data, updates, reports).
 - **AI cost limits:** one cooldown shared by `/ask`, mentions and help threads, a server-wide cap (`ASK_MAX_PER_MINUTE`, default 20), and questions are capped at 1,500 characters.
 
 ## v0.1.0-alpha (2026-10-26)

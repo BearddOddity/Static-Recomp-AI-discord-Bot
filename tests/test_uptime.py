@@ -160,7 +160,8 @@ def test_env_value_is_replaced_or_added():
 
 
 class FakeGitHub:
-    def __init__(self):
+    def __init__(self, push=True):
+        self.push = push
         self.files = {"servers/x/server.env": "COMMUNITY_ABOUT=games\nOPENAI_COMPAT_MODEL=old:free\n"}
         self.calls, self.prs, self.issues = [], [], []
 
@@ -171,7 +172,7 @@ class FakeGitHub:
         if method == "GET" and path == "/pulls":
             return httpx.Response(200, json=[p for p in self.prs if p["head"] == request.url.params["head"].split(":")[1]])
         if method == "GET" and path == "":
-            return httpx.Response(200, json={"default_branch": "main"})
+            return httpx.Response(200, json={"default_branch": "main", "permissions": {"push": self.push}})
         if method == "GET" and path == "/git/ref/heads/main":
             return httpx.Response(200, json={"object": {"sha": "abc"}})
         if method == "POST" and path == "/git/refs":
@@ -226,6 +227,16 @@ def test_bad_key_opens_an_issue_never_a_pull_request():
     assert issue["title"] == "The AI key needs replacing" and issue["labels"] == ["ai-health"]
     assert "must never be committed" in issue["body"]
     assert "issues/8" in notes[0]
+
+
+def test_someone_elses_copy_never_files_on_the_original_repo():
+    github = FakeGitHub(push=False)  # a token that can't push: the repo isn't theirs
+    health, notes = monitor(github)
+    run(health.report(Problem("key", "OPENAI_COMPAT_MODEL", "a:free", "No auth credentials found")))
+    run(health.report(Problem("model", "OPENAI_COMPAT_MODEL", "old:free", "gone", replacement="new:free")))
+    assert github.prs == [] and github.issues == []
+    assert not any(method == "POST" for method, _ in github.calls)
+    assert len(notes) == 2 and "The AI key needs replacing" in notes[0]  # the mod log still hears
 
 
 def test_without_github_it_still_tells_the_moderators():

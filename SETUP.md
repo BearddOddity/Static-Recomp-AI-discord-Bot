@@ -1,6 +1,6 @@
 # Setup guide
 
-This takes about 20 minutes and no programming. You need:
+This sets up **your own** bot: your own Discord application, keys and data, separate from every other copy. It takes about 20 minutes and no programming. You need:
 
 - **Admin** rights on your Discord server.
 - **A computer that stays on** to run the bot: your PC while you test, then a small always-on machine or rented server (see step 8).

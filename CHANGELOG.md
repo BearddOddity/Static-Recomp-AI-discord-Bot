@@ -12,6 +12,9 @@
 - [docs/SECURITY.md](docs/SECURITY.md): every protection, plus a checklist for owners.
 - [docs/PERMISSIONS.md](docs/PERMISSIONS.md): one short page with the permissions to give the bot, the ones never to give it, the Developer Portal settings, and what staff need for each command.
 
+### /status
+- `/status` is now a checklist. Its title says **✅ All good** or how many things need fixing. Every ❌ problem comes first with the exact step that fixes it (including a ready-made re-invite link for missing permissions), then what works, then optional features that are off.
+
 ### Guardrails
 - A guardrails file gives the AI the owners' own rules: `[instructions]` it always follows, `[redirect]` fixed answers for set questions (no AI call), `[topic]` extra guidance on tricky subjects, `[block questions]` and `[block answers]` keywords, and `[moderation]` guidance for the moderation AI. Keywords or regular expressions; re-read on every change, no restart. See [docs/GUARDRAILS.md](docs/GUARDRAILS.md) and `guardrails.example.txt`.
 - Always on: jailbreak attempts are refused without calling the AI, and answers that repeat the bot's instructions or contain a key or token are held back.

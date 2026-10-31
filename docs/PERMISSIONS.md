@@ -14,7 +14,7 @@ Attach Files|Attach screenshot evidence to case reports
 Read Message History|Read the rules channel and recent chat for context
 Add Reactions|⏳ when someone asks again too fast
 Manage Messages|Delete scam and piracy messages
-Moderate Members|Time members out until a moderator reviews their case
+Timeout Members (also called Moderate Members)|Time members out until a moderator reviews their case
 Ban Members|Ban, **only** when a moderator presses Ban and confirms
 Manage Server|Read Discord's AutoMod slur filter, used for hate speech
 Create Private Threads|Open `/help` threads
@@ -45,7 +45,7 @@ The bot never uses any of them, and each one would let a stolen token do real da
 
 ## What your own staff need
 
-- **Moderate Members:** case buttons, `/warn`, `/warnings`, `/tune`, `/brake`, `/feedback`.
+- **Timeout Members** (Moderate Members): case buttons, `/warn`, `/warnings`, `/tune`, `/brake`, `/feedback`.
 - **Ban Members:** the Ban button.
 - **Manage Server:** `/status`, `/settings`, `/guardrails`, `/ai-mode`, `/reload-docs`.
 - **Administrator** (or the server owner): keys, AI provider and the 🔒 settings in `/settings`.

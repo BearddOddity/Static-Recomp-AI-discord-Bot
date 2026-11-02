@@ -896,10 +896,10 @@ async def _ai_mode_choices(interaction: discord.Interaction, current: str) -> li
     return [app_commands.Choice(name=m, value=m) for m in ("default", *bot.settings.ai_modes) if current.lower() in m]
 
 
-def safety_checks(guild: discord.Guild) -> list[Check]:
+def safety_checks(guild: discord.Guild, me: discord.Member | None = None) -> list[Check]:
     """What would let the bot do more harm than its job needs: permissions it shouldn't
     have, or a role above the server's staff. Each comes with its fix."""
-    me = guild.me
+    me = me or guild.me
     if me is None:
         return []
     problems = []
@@ -976,6 +976,15 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
     settings = bot.settings
     checks: list[Check] = []
     add = checks.append
+    # guild.me is only there once Discord's member list is cached, so fetch it if it isn't.
+    me = guild.me
+    if me is None:
+        try:
+            me = await guild.fetch_member(bot.user.id if bot.user else 0)
+        except discord.HTTPException:
+            return [fix("The bot can't find its own member record in this server.",
+                        "Check that the bot is still in this server (re-invite it with the link in SETUP.md), "
+                        "then restart it and run /status again.")]
 
     # Settings saved in /settings only apply after a restart, so until then this report
     # shows the old values.
@@ -991,7 +1000,7 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
                 "Once you've checked the recent case reports and the bot is behaving, run `/brake off`."))
     else:
         add(ok("Safety brake ready (`/brake on` stops everything automatic)"))
-    safety = safety_checks(guild)
+    safety = safety_checks(guild, me)
     checks.extend(safety)
     if not safety:
         add(ok("No dangerous permissions, and the bot's role is below your staff"))
@@ -1003,7 +1012,7 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
         add(ok(f"Locked to this server, the first one it joined. Tip: `DISCORD_GUILD_ID={guild.id}` in `.env` "
                "keeps it that way even if it's ever added somewhere else first"))
 
-    missing = [name for name, needed in REQUIRED_PERMISSIONS if needed and not getattr(guild.me.guild_permissions, name)]
+    missing = [name for name, needed in REQUIRED_PERMISSIONS if needed and not getattr(me.guild_permissions, name)]
     link = invite_url(bot.application_id)
     # Bots invited before /help threads existed lack the thread permissions. That only
     # matters once Help mode is on.
@@ -1019,7 +1028,7 @@ async def status_checks(bot: "AssistantBot", guild: discord.Guild) -> list[Check
     if help_missing and not settings.help_enabled:
         add(off(f"Help mode needs {', '.join(permission_name(n) for n in help_missing)}: "
                 f"if you turn it on, re-invite with <{link}>"))
-    if guild.me.top_role.position <= 1:
+    if me.top_role.position <= 1:
         add(fix("The bot's role is at the bottom of the role list, so it can only time out members with no roles.",
                 "Server Settings → Roles: drag the bot's role above normal members (but below staff)."))
 

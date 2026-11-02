@@ -15,6 +15,7 @@
 ### /status
 - `/status` is now a checklist. Its title says **✅ All good** or how many things need fixing. Every ❌ problem comes first with the exact step that fixes it (including a ready-made re-invite link for missing permissions), then what works, then optional features that are off.
 - `/status` no longer blames the bot for permissions Discord gives `@everyone` by default (Create Invite, Mention @everyone), no longer calls a missing `DISCORD_GUILD_ID` a problem (the bot already stays in its first server), and says when settings saved in `/settings` are waiting for a restart.
+- `/status` no longer crashes when Discord hasn't cached the bot's own member record. It fetches it, and if that fails it says how to fix it.
 - Bots invited before `/help` threads existed aren't told they're missing permissions until Help mode is on. Missing permissions now say the bot was probably invited with an older link, and give the link that updates its role.
 
 ### Guardrails

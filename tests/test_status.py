@@ -125,6 +125,34 @@ def test_thread_permissions_only_matter_with_help_mode(make_bot):
     assert "Manage Threads" in by_text(checks, "Missing permissions").text
 
 
+def test_an_uncached_bot_member_is_fetched_not_a_crash(make_bot):
+    class Uncached(FakeGuild):
+        def __init__(self, perms, channels):
+            super().__init__(perms, channels)
+            self.me = None  # Discord hasn't cached the bot's own member yet
+
+        async def fetch_member(self, member_id):
+            return FakeGuild({"view_channel": True}, {}).me
+
+    bot = make_bot(DISCORD_GUILD_ID="1")
+    checks = run(status_checks(bot, Uncached({}, {})))
+    assert checks and all(isinstance(c, Check) for c in checks)
+    assert any("All the permissions" in c.text or "Missing permissions" in c.text for c in checks)
+
+
+def test_a_missing_member_record_gives_a_fix_not_a_crash(make_bot):
+    class Gone(FakeGuild):
+        def __init__(self, perms, channels):
+            super().__init__(perms, channels)
+            self.me = None
+
+        async def fetch_member(self, member_id):
+            raise discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "no")
+
+    checks = run(status_checks(make_bot(DISCORD_GUILD_ID="1"), Gone({}, {})))
+    assert len(checks) == 1 and checks[0].state == FIX and "re-invite" in checks[0].fix
+
+
 def test_no_guild_id_is_a_tip_not_a_problem(make_bot):
     checks = run(status_checks(make_bot(), FakeGuild({}, {})))
     lock = by_text(checks, "Locked to this server")
